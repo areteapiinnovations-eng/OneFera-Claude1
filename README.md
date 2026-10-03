@@ -34,6 +34,7 @@ Requirements: a current Android Studio with its bundled JDK 17+. Devices need An
    firebase deploy --only firestore:rules,firestore:indexes,storage,functions
    ```
 6. Rebuild. The demo-mode banner disappears and data is stored live in Firestore.
+7. **Push notifications** work once `google-services.json` is in place: the app registers each device's FCM token and asks for the notification permission on Android 13+. Tapping a notification opens the matching chat, post or profile.
 
 ### What the backend does
 
@@ -42,7 +43,7 @@ Requirements: a current Android Studio with its bundled JDK 17+. Devices need An
 | Firestore rules | `firebase/firestore.rules` | Who can read and write what. Clients can't change counters, Aura or other people's notifications. Followers-only posts are hidden from non-followers. |
 | Storage rules | `firebase/storage.rules` | Avatars (≤ 5 MB), post photos (≤ 15 MB) and videos (≤ 100 MB), stories |
 | Indexes | `firebase/firestore.indexes.json` | Feed, reels, profile grid, hashtag and notification queries |
-| Cloud Functions | `firebase/functions` (TypeScript) | Like, comment, follower and post counters; Aura points; notifications plus push; hashtag counts; media and expired-story cleanup |
+| Cloud Functions | `firebase/functions` (TypeScript) | Like, comment, follower and post counters; Aura points; notifications plus push; chat previews, unread counts and message push; hashtag counts; media and expired-story cleanup |
 | Rules tests | `firebase/rules-tests` | Run with `npm ci && npm test` (starts the Firestore emulator). These also run in CI. |
 
 ## Build an APK / App Bundle (AAB)
@@ -87,6 +88,7 @@ app/src/main/java/com/onefera/app/
     ├── create/                     new post / reel (photos up to 10, video up to 90 s)
     ├── reels/                      full-screen vertical video player
     ├── search/                     people, hashtags, recent and trending searches, tag pages
+    ├── chat/                       chats list, new message, conversation (replies, attachments, quick replies)
     ├── notifications/              activity, follow requests
     ├── user/                       other people's profiles, follower lists
     ├── profile/                    your profile, menu, edit profile + photo upload
@@ -110,8 +112,8 @@ branding/                           source logo and icon files (Play Store icon:
 |---|---|---|
 | 1 | Project, CI, branding, themes, onboarding, auth, app shell, profile, settings | ✅ |
 | 2 | Feed & stories, create post, reels player, search, notifications, follow | ✅ |
-| 3 | Real-time chat (replies, attachments, quick vibes), push notifications | next |
-| 4 | Shop: catalogue, filters, product page, wishlist, cart, checkout (Razorpay), orders | |
+| 3 | Real-time chat (replies, attachments, quick vibes), push notifications | ✅ |
+| 4 | Shop: catalogue, filters, product page, wishlist, cart, checkout (Razorpay), orders | next |
 | 5 | Seller mode: dashboard, listings, inventory, orders, analytics | |
 | 6 | Aura engine, streaks, leaderboard, Mystery Box, memberships | |
 | 7 | Near (people + stores), release hardening, Play Store listing | |
