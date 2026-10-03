@@ -1,11 +1,21 @@
 rules_version = '2';
 
-// OneFera Firestore security rules (Phase 1: profiles and usernames).
+// OneFera Firestore security rules.
+// Counters, Aura, tag counts and notifications are written only by Cloud Functions (admin SDK).
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
-    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function me() { return request.auth.uid; }
+    function isOwner(uid) { return signedIn() && me() == uid; }
+    function userDoc(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function isFollower(targetUid) {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(targetUid)/followers/$(me()));
+    }
+    function incoming() { return request.resource.data; }
+    function changed() { return incoming().diff(resource.data).affectedKeys(); }
+
+    // ------------------------------------------------------------ users
 
     // Fields only Cloud Functions (admin SDK) may change.
     function serverOwned() {
@@ -27,32 +37,138 @@ service cloud.firestore {
       allow read: if signedIn();
 
       allow create: if isOwner(uid)
-        && request.resource.data.uid == uid
-        && validProfileText(request.resource.data)
-        && request.resource.data.verified == false
-        && request.resource.data.auraPoints == 0
-        && request.resource.data.streakDays == 0
-        && request.resource.data.postsCount == 0
-        && request.resource.data.followersCount == 0
-        && request.resource.data.followingCount == 0
-        && request.resource.data.profileViews == 0
-        && request.resource.data.accountMode in ['Personal', 'Seller'];
+        && incoming().uid == uid
+        && validProfileText(incoming())
+        && incoming().verified == false
+        && incoming().auraPoints == 0
+        && incoming().streakDays == 0
+        && incoming().postsCount == 0
+        && incoming().followersCount == 0
+        && incoming().followingCount == 0
+        && incoming().profileViews == 0
+        && incoming().accountMode in ['Personal', 'Seller'];
 
       allow update: if isOwner(uid)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(serverOwned())
-        && validProfileText(request.resource.data)
-        && request.resource.data.accountMode in ['Personal', 'Seller']
-        && request.resource.data.isPrivate is bool;
+        && !changed().hasAny(serverOwned())
+        && validProfileText(incoming())
+        && incoming().accountMode in ['Personal', 'Seller']
+        && incoming().isPrivate is bool;
 
       allow delete: if false;
+
+      // Who this user follows. Written by the user, or by the followed account when it
+      // approves this user's follow request.
+      match /following/{targetUid} {
+        allow read: if signedIn();
+        allow create: if isOwner(uid)
+          || (isOwner(targetUid) && exists(/databases/$(database)/documents/users/$(targetUid)/followRequests/$(uid)));
+        allow delete: if isOwner(uid) || isOwner(targetUid);
+      }
+
+      // Who follows this user. Public accounts: anyone may add themselves. Private accounts:
+      // the owner adds approved requesters.
+      match /followers/{followerUid} {
+        allow read: if signedIn();
+        allow create: if (isOwner(followerUid) && get(userDoc(uid)).data.isPrivate == false)
+          || (isOwner(uid) && exists(/databases/$(database)/documents/users/$(uid)/followRequests/$(followerUid)));
+        allow delete: if isOwner(followerUid) || isOwner(uid);
+      }
+
+      match /followRequests/{requesterUid} {
+        allow read: if isOwner(uid) || isOwner(requesterUid);
+        allow create: if isOwner(requesterUid) && requesterUid != uid;
+        allow delete: if isOwner(uid) || isOwner(requesterUid);
+      }
+
+      match /likes/{postId} {
+        allow read, create, delete: if isOwner(uid);
+      }
+
+      match /saved/{postId} {
+        allow read, create, delete: if isOwner(uid);
+      }
+
+      match /notifications/{notificationId} {
+        allow read, delete: if isOwner(uid);
+        allow update: if isOwner(uid) && changed().hasOnly(['read']);
+        allow create: if false;
+      }
+
+      match /fcmTokens/{token} {
+        allow read, write: if isOwner(uid);
+      }
     }
 
     // Username claims: one document per handle, owned by the claiming user.
     match /usernames/{username} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
-      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if signedIn() && incoming().uid == me();
+      allow delete: if signedIn() && resource.data.uid == me();
       allow update: if false;
+    }
+
+    // ------------------------------------------------------------ posts
+
+    function canSeePost(post) {
+      return signedIn() && (post.visibility == 'public' || post.authorId == me() || isFollower(post.authorId));
+    }
+
+    match /posts/{postId} {
+      allow read: if canSeePost(resource.data);
+
+      allow create: if signedIn()
+        && incoming().authorId == me()
+        && incoming().author.uid == me()
+        && incoming().type in ['Post', 'Reel']
+        && incoming().visibility in ['public', 'followers']
+        && incoming().caption is string && incoming().caption.size() <= 2200
+        && incoming().media is list && incoming().media.size() >= 1 && incoming().media.size() <= 10
+        && incoming().tags is list && incoming().tags.size() <= 30
+        && incoming().likeCount == 0
+        && incoming().commentCount == 0
+        && incoming().shareCount == 0;
+
+      // Authors may edit the caption/location; counters belong to Cloud Functions.
+      allow update: if signedIn() && resource.data.authorId == me()
+        && changed().hasOnly(['caption', 'location', 'tags']);
+
+      allow delete: if signedIn() && resource.data.authorId == me();
+
+      match /likes/{likerUid} {
+        allow read: if signedIn();
+        allow create, delete: if isOwner(likerUid)
+          && canSeePost(get(/databases/$(database)/documents/posts/$(postId)).data);
+      }
+
+      match /comments/{commentId} {
+        allow read: if canSeePost(get(/databases/$(database)/documents/posts/$(postId)).data);
+        allow create: if signedIn()
+          && incoming().authorId == me()
+          && incoming().author.uid == me()
+          && incoming().text is string && incoming().text.size() >= 1 && incoming().text.size() <= 500
+          && canSeePost(get(/databases/$(database)/documents/posts/$(postId)).data);
+        allow delete: if signedIn() && (resource.data.authorId == me()
+          || get(/databases/$(database)/documents/posts/$(postId)).data.authorId == me());
+      }
+    }
+
+    // ------------------------------------------------------------ stories
+
+    match /stories/{storyId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && incoming().authorId == me()
+        && incoming().author.uid == me()
+        && incoming().expiresAt is int
+        && incoming().expiresAt <= request.time.toMillis() + 25 * 60 * 60 * 1000;
+      allow delete: if signedIn() && resource.data.authorId == me();
+    }
+
+    // ------------------------------------------------------------ tags (Cloud Functions only)
+
+    match /tags/{tag} {
+      allow read: if signedIn();
+      allow write: if false;
     }
   }
 }

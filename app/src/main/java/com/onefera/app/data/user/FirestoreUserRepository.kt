@@ -75,6 +75,7 @@ class FirestoreUserRepository @Inject constructor() : UserRepository {
                 userDoc(uid),
                 mapOf(
                     "displayName" to update.displayName,
+                    "displayNameLower" to update.displayName.lowercase(),
                     "username" to update.username,
                     "bio" to update.bio,
                     "vibe" to update.vibe,
@@ -121,6 +122,7 @@ class FirestoreUserRepository @Inject constructor() : UserRepository {
 private fun UserProfile.toMap(): Map<String, Any?> = mapOf(
     "uid" to uid,
     "displayName" to displayName,
+    "displayNameLower" to displayName.lowercase(),
     "username" to username,
     "email" to email,
     "bio" to bio,

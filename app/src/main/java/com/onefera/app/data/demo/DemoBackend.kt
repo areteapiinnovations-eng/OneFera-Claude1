@@ -62,7 +62,11 @@ class DemoBackend @Inject constructor(
     init {
         scope.launch {
             val saved = context.demoStore.data.first()[KEY]?.let { runCatching { json.decodeFromString(State.serializer(), it) }.getOrNull() }
-            state.value = saved?.takeIf { it.accounts.isNotEmpty() } ?: State(accounts = listOf(seedAccount()))
+            val base = saved ?: State()
+            // Add any seed accounts (the demo login and the demo creators) that aren't there yet.
+            val seeds = listOf(seedAccount()) + DemoSeed.creators.map { Account(it.email, DemoSeed.CREATOR_PASSWORD, it) }
+            val missing = seeds.filter { seed -> base.accounts.none { it.profile.uid == seed.profile.uid } }
+            state.value = base.copy(accounts = base.accounts + missing)
         }
     }
 
@@ -75,13 +79,27 @@ class DemoBackend @Inject constructor(
         }
     }.distinctUntilChanged()
 
+    /** Every profile in the demo world (used for search, suggestions and follow lists). */
+    val profiles: Flow<List<UserProfile>> = state.map { s -> s?.accounts?.map { it.profile }.orEmpty() }.distinctUntilChanged()
+
+    suspend fun profileNow(uid: String): UserProfile? = current().accounts.firstOrNull { it.profile.uid == uid }?.profile
+
+    suspend fun currentUid(): String? = current().sessionUid
+
+    /** Updates profile fields such as counters immediately (no simulated latency). */
+    suspend fun adjustProfile(uid: String, transform: (UserProfile) -> UserProfile) {
+        update(latencyMs = 0) { s ->
+            s.copy(accounts = s.accounts.map { if (it.profile.uid == uid) it.copy(profile = transform(it.profile)) else it }) to Unit
+        }
+    }
+
     fun profile(uid: String): Flow<UserProfile?> =
         state.map { s -> s?.accounts?.firstOrNull { it.profile.uid == uid }?.profile }.distinctUntilChanged()
 
     private suspend fun current(): State = state.first { it != null }!!
 
-    private suspend fun <T> update(block: (State) -> Pair<State, T>): T = mutex.withLock {
-        delay(350) // feel like a network call
+    private suspend fun <T> update(latencyMs: Long = 350, block: (State) -> Pair<State, T>): T = mutex.withLock {
+        if (latencyMs > 0) delay(latencyMs) // feel like a network call
         val (next, result) = block(current())
         state.value = next
         context.demoStore.edit { it[KEY] = json.encodeToString(State.serializer(), next) }

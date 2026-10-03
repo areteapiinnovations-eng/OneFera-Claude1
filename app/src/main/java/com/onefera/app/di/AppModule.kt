@@ -6,6 +6,18 @@ import com.onefera.app.data.backend.ApplicationScope
 import com.onefera.app.data.backend.BackendConfig
 import com.onefera.app.data.demo.DemoAuthRepository
 import com.onefera.app.data.demo.DemoUserRepository
+import com.onefera.app.data.demo.DemoNotificationRepository
+import com.onefera.app.data.demo.DemoPostRepository
+import com.onefera.app.data.demo.DemoSocialRepository
+import com.onefera.app.data.demo.DemoStoryRepository
+import com.onefera.app.data.firebase.FirestoreNotificationRepository
+import com.onefera.app.data.firebase.FirestorePostRepository
+import com.onefera.app.data.firebase.FirestoreSocialRepository
+import com.onefera.app.data.firebase.FirestoreStoryRepository
+import com.onefera.app.data.social.NotificationRepository
+import com.onefera.app.data.social.PostRepository
+import com.onefera.app.data.social.SocialRepository
+import com.onefera.app.data.social.StoryRepository
 import com.onefera.app.data.user.FirestoreUserRepository
 import com.onefera.app.data.user.UserRepository
 import dagger.Module
@@ -43,4 +55,36 @@ object AppModule {
         firestore: Provider<FirestoreUserRepository>,
         demo: Provider<DemoUserRepository>,
     ): UserRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    @Provides
+    @Singleton
+    fun providePostRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestorePostRepository>,
+        demo: Provider<DemoPostRepository>,
+    ): PostRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    @Provides
+    @Singleton
+    fun provideStoryRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestoreStoryRepository>,
+        demo: Provider<DemoStoryRepository>,
+    ): StoryRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    @Provides
+    @Singleton
+    fun provideSocialRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestoreSocialRepository>,
+        demo: Provider<DemoSocialRepository>,
+    ): SocialRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    @Provides
+    @Singleton
+    fun provideNotificationRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestoreNotificationRepository>,
+        demo: Provider<DemoNotificationRepository>,
+    ): NotificationRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
 }
