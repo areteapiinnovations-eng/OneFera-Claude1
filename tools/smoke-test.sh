@@ -105,7 +105,12 @@ tap_text "Settings";                  shot 13-settings
 tap_text "Sunset Pop";                shot 14-settings-sunset-pop
 timeout 10 adb shell input keyevent KEYCODE_BACK; shot 15-profile-sunset-pop
 # Shop: find a product, add it to the cart and check out with the simulated payment.
-type_into() { tap_text "$1" && sleep 1 && timeout 10 adb shell input text "$2" && timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 1; }
+# Close the soft keyboard only if one is showing (ATD images have none, so Back would leave the screen).
+hide_keyboard() {
+  if timeout 10 adb shell dumpsys input_method | grep -q "mInputShown=true"; then timeout 10 adb shell input keyevent KEYCODE_BACK; fi
+  sleep 1
+}
+type_into() { tap_text "$1" && sleep 1 && timeout 10 adb shell input text "$2"; hide_keyboard; }
 tap_text "Shop";                      shot 16-shop 6
 tap_text "Search drops, brands…";     sleep 2
 type_into "Search people, #tags, drops…" "airpods"; shot 17-shop-search 4
