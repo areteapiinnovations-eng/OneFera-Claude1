@@ -108,8 +108,7 @@ timeout 10 adb shell input keyevent KEYCODE_BACK; shot 15-profile-sunset-pop
 type_into() { tap_text "$1" && sleep 1 && timeout 10 adb shell input text "$2" && timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 1; }
 tap_text "Shop";                      shot 16-shop 6
 tap_text "Search drops, brands…";     sleep 2
-timeout 10 adb shell input text "airpods"; shot 17-shop-search 5
-timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 1
+type_into "Search people, #tags, drops…" "airpods"; shot 17-shop-search 4
 tap_text "Apple Airpods";             shot 18-product 5
 tap_text "Add to cart";               sleep 2
 tap_text "Cart, 1 items";             shot 19-cart 3
