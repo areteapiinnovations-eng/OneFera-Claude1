@@ -157,6 +157,20 @@ tap_text "Seller hub";                shot 23-seller-hub 4
 tap_text "New listing";               shot 24-listing-editor 3
 timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 2
 
+# Rewards: the daily check-in ran at login, so today's Mystery Box is ready.
+back_to_tabs
+tap_text "Profile menu";              sleep 2
+tap_text "Rewards & Mystery Box";     shot 25-rewards 3
+tap_text "Open box";                  shot 26-mystery-box 4
+tap_text "Let's go";                  sleep 1
+back_to_tabs
+tap_text "Profile menu";              sleep 2
+tap_text "Aura leaderboard";          shot 27-leaderboard 3
+back_to_tabs
+tap_text "Profile menu";              sleep 2
+tap_text "Membership";                shot 28-membership 3
+back_to_tabs
+
 if ! timeout 10 adb shell pidof "$PKG" >/dev/null; then
   echo "::error::App process is not running at the end of the smoke test"
   tail -100 "$OUT/logcat.txt"

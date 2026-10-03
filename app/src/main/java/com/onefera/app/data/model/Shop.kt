@@ -144,6 +144,8 @@ data class Order(
     val items: List<OrderItem> = emptyList(),
     val subtotal: Int = 0,
     val deliveryFee: Int = 0,
+    val discount: Int = 0,
+    val couponId: String = "",
     val total: Int = 0,
     val address: Address = Address(),
     val paymentMethod: PaymentMethod = PaymentMethod.Upi,
@@ -159,15 +161,21 @@ data class Order(
 }
 
 /** Prices for a cart, computed the same way on the device and in Cloud Functions. */
-data class CartTotals(val subtotal: Int, val savings: Int, val deliveryFee: Int) {
-    val total: Int get() = subtotal + deliveryFee
+data class CartTotals(val subtotal: Int, val savings: Int, val deliveryFee: Int, val discount: Int = 0) {
+    val total: Int get() = (subtotal + deliveryFee - discount).coerceAtLeast(0)
 
     companion object {
-        fun of(items: List<CartItem>): CartTotals {
+        /**
+         * [coupon] (if usable for this subtotal) takes money off the items or waives delivery;
+         * [freeDelivery] is the OneFera+ perk.
+         */
+        fun of(items: List<CartItem>, coupon: Coupon? = null, freeDelivery: Boolean = false): CartTotals {
             val subtotal = items.sumOf { it.lineTotal }
             val savings = items.sumOf { (it.product.mrp - it.product.price).coerceAtLeast(0) * it.quantity }
-            val delivery = if (subtotal == 0 || subtotal >= Product.FREE_DELIVERY_ABOVE) 0 else Product.DELIVERY_FEE
-            return CartTotals(subtotal, savings, delivery)
+            val waived = freeDelivery || coupon?.waivesDelivery(subtotal) == true
+            val delivery = if (subtotal == 0 || subtotal >= Product.FREE_DELIVERY_ABOVE || waived) 0 else Product.DELIVERY_FEE
+            val discount = coupon?.discountFor(subtotal) ?: 0
+            return CartTotals(subtotal, savings + discount, delivery, discount)
         }
     }
 }

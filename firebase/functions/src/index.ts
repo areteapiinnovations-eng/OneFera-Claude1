@@ -9,6 +9,7 @@
  *  - chat messages         -> conversation preview, unread counts, push
  *  - hourly                -> expired stories removed
  *  - shop (callable)       -> checkout, payment confirmation, cancellation; simulated courier
+ *  - rewards (callable)    -> daily check-in streaks, Mystery Boxes, coupons, memberships
  */
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
@@ -350,8 +351,23 @@ export const startCheckout = onCall(async (request) => {
     });
   }
   const subtotal = lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
-  const deliveryFee = subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FEE;
-  const total = subtotal + deliveryFee;
+  const buyer = await db.collection("users").doc(uid).get();
+  const plus = hasPlusPerks(buyer.get("membershipPlan"), buyer.get("membershipExpiresAt"));
+  const couponId = typeof request.data?.couponId === "string" ? (request.data.couponId as string) : "";
+  let discount = 0;
+  let waived = plus;
+  if (couponId) {
+    const coupon = await db.collection("users").doc(uid).collection("coupons").doc(couponId).get();
+    if (!coupon.exists || coupon.get("used") || (coupon.get("expiresAt") ?? 0) <= Date.now()) {
+      throw new HttpsError("failed-precondition", "That coupon has expired or was already used.");
+    }
+    const c = coupon.data() as Coupon;
+    if (subtotal < c.minOrder) throw new HttpsError("failed-precondition", `Add ₹${c.minOrder - subtotal} more to use this coupon.`);
+    discount = couponDiscount(c, subtotal);
+    if (c.kind === "FreeDelivery") waived = true;
+  }
+  const deliveryFee = subtotal >= FREE_DELIVERY_ABOVE || waived ? 0 : DELIVERY_FEE;
+  const total = Math.max(0, subtotal + deliveryFee - discount);
 
   const ref = db.collection("orders").doc();
   const live = paymentsLive() && method !== "Cod";
@@ -376,6 +392,8 @@ export const startCheckout = onCall(async (request) => {
     sellerIds: [...new Set(lines.map((l) => l.product.sellerId).filter((s) => s))],
     subtotal,
     deliveryFee,
+    discount,
+    couponId,
     total,
     address,
     paymentMethod: method,
@@ -440,6 +458,8 @@ export const confirmPayment = onCall(async (request) => {
       "history.Placed": Timestamp.fromMillis(now),
       estimatedDelivery: now + 3 * DAY,
     });
+    const couponId = fresh.get("couponId") as string | undefined;
+    if (couponId) tx.update(db.collection("users").doc(uid).collection("coupons").doc(couponId), { used: true });
   });
 
   // Empty the cart (only the lines that were bought).
@@ -539,4 +559,125 @@ export const updateOrderStatus = onCall(async (request) => {
   });
   await sendPush(result.buyerId, result.title, `Order ${orderId}`, { open: `order:${orderId}`, type: "Order" });
   return { status: result.next };
+});
+
+// ---------------------------------------------------------------- rewards
+
+/**
+ * The Aura economy. Mirrors `Rewards` in the app (data/model/Rewards.kt) so demo mode and the
+ * live backend behave the same.
+ */
+const CHECK_IN_AURA = 5;
+const WEEK_BONUS_AURA = 25;
+const COUPON_DAYS = 14;
+const MEMBERSHIP_DAYS = 30;
+const PLANS = ["Plus", "SellerPro"];
+
+interface Coupon { kind: "Flat" | "Percent" | "FreeDelivery"; value: number; minOrder: number; maxDiscount: number; expiresAt: number; used: boolean }
+
+function hasPlusPerks(plan: unknown, expiresAt: unknown): boolean {
+  return PLANS.includes(String(plan)) && Number(expiresAt ?? 0) > Date.now();
+}
+
+function couponDiscount(c: Coupon, subtotal: number): number {
+  if (subtotal < c.minOrder) return 0;
+  if (c.kind === "Flat") return Math.min(c.value, subtotal);
+  if (c.kind === "Percent") {
+    const d = Math.floor((subtotal * c.value) / 100);
+    return c.maxDiscount > 0 ? Math.min(d, c.maxDiscount) : d;
+  }
+  return 0;
+}
+
+/** yyyy-MM-dd in India time, so streaks roll over at local midnight. */
+function dayKey(millis: number): string {
+  return new Date(millis + 330 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+export const dailyCheckIn = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const ref = db.collection("users").doc(uid);
+  const now = Date.now();
+  const today = dayKey(now);
+  const yesterday = dayKey(now - DAY);
+  return db.runTransaction(async (tx) => {
+    const user = await tx.get(ref);
+    if (!user.exists) throw new HttpsError("failed-precondition", "Finish setting up your profile first.");
+    const last = user.get("lastCheckInDay") as string | undefined;
+    const current = (user.get("streakDays") as number | undefined) ?? 0;
+    if (last === today) return { streak: current, auraGained: 0, alreadyCheckedIn: true, boxUnlocked: false };
+    const streak = last === yesterday ? current + 1 : 1;
+    const plus = hasPlusPerks(user.get("membershipPlan"), user.get("membershipExpiresAt"));
+    const gained = CHECK_IN_AURA * (plus ? 2 : 1) + (streak % 7 === 0 ? WEEK_BONUS_AURA : 0);
+    const aura = Math.max(0, Math.min(AURA_MAX, ((user.get("auraPoints") as number | undefined) ?? 0) + gained));
+    tx.update(ref, { streakDays: streak, lastCheckInDay: today, auraPoints: aura });
+    return { streak, auraGained: gained, alreadyCheckedIn: false, boxUnlocked: true };
+  });
+});
+
+export const openMysteryBox = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const ref = db.collection("users").doc(uid);
+  const now = Date.now();
+  const today = dayKey(now);
+  const boxRef = ref.collection("boxes").doc(today);
+  return db.runTransaction(async (tx) => {
+    const [user, box] = await Promise.all([tx.get(ref), tx.get(boxRef)]);
+    if (user.get("lastCheckInDay") !== today) throw new HttpsError("failed-precondition", "Check in first to unlock today's box.");
+    const allowed = hasPlusPerks(user.get("membershipPlan"), user.get("membershipExpiresAt")) ? 2 : 1;
+    const opened = (box.get("opened") as number | undefined) ?? 0;
+    if (opened >= allowed) throw new HttpsError("resource-exhausted", "You've opened today's boxes. New ones drop at midnight ✨");
+    tx.set(boxRef, { opened: opened + 1 }, { merge: true });
+
+    const roll = Math.floor(Math.random() * 100);
+    const expiresAt = now + COUPON_DAYS * DAY;
+    let aura = 0;
+    let coupon: (Coupon & { id: string }) | null = null;
+    if (roll < 40) aura = 10;
+    else if (roll < 60) aura = 25;
+    else if (roll < 65) aura = 50;
+    else {
+      const couponRef = ref.collection("coupons").doc();
+      const base = { maxDiscount: 0, expiresAt, used: false };
+      const c: Coupon = roll < 85
+        ? { ...base, kind: "Flat", value: 50, minOrder: 499 }
+        : roll < 95
+          ? { ...base, kind: "Percent", value: 10, minOrder: 999, maxDiscount: 200 }
+          : { ...base, kind: "FreeDelivery", value: 0, minOrder: 0 };
+      tx.set(couponRef, c);
+      coupon = { ...c, id: couponRef.id };
+    }
+    if (aura > 0) {
+      const next = Math.max(0, Math.min(AURA_MAX, ((user.get("auraPoints") as number | undefined) ?? 0) + aura));
+      tx.update(ref, { auraPoints: next });
+    }
+    return { aura, coupon };
+  });
+});
+
+/**
+ * Starts or renews a membership for 30 days. Only available while payments are simulated:
+ * Play Store builds must sell subscriptions through Google Play Billing, whose server-side
+ * purchase verification replaces this function at release.
+ */
+export const startMembership = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const plan = String(request.data?.plan ?? "");
+  if (!PLANS.includes(plan)) throw new HttpsError("invalid-argument", "Pick a plan.");
+  if (paymentsLive()) throw new HttpsError("failed-precondition", "Memberships are sold through Google Play in this version.");
+  const ref = db.collection("users").doc(uid);
+  await db.runTransaction(async (tx) => {
+    const user = await tx.get(ref);
+    const now = Date.now();
+    const currentEnd = Number(user.get("membershipExpiresAt") ?? 0);
+    const base = user.get("membershipPlan") === plan && currentEnd > now ? currentEnd : now;
+    tx.update(ref, { membershipPlan: plan, membershipExpiresAt: base + MEMBERSHIP_DAYS * DAY });
+  });
+  return { plan };
+});
+
+export const cancelMembership = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  await db.collection("users").doc(uid).update({ membershipPlan: "None", membershipExpiresAt: 0 });
+  return { plan: "None" };
 });

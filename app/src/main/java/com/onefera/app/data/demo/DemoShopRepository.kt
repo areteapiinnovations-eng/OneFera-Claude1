@@ -19,6 +19,7 @@ import com.onefera.app.data.model.OrderItem
 import com.onefera.app.data.model.OrderStatus
 import com.onefera.app.data.model.PaymentMethod
 import com.onefera.app.data.model.Product
+import com.onefera.app.data.model.formatRupees
 import com.onefera.app.data.shop.CheckoutSession
 import com.onefera.app.data.shop.PaymentResult
 import com.onefera.app.data.shop.ShopRepository
@@ -67,6 +68,7 @@ class DemoShopRepository @Inject constructor(
     private val catalog: DemoCatalog,
     private val accounts: DemoBackend,
     private val media: MediaProcessor,
+    private val rewards: DemoRewardsRepository,
 ) : ShopRepository, SellerRepository {
 
     @Serializable
@@ -199,8 +201,10 @@ class DemoShopRepository @Inject constructor(
         update { s -> s.copy(addresses = s.addresses + (uid to address)) to Unit }
     }
 
-    override suspend fun startCheckout(address: Address, method: PaymentMethod): Result<CheckoutSession> = runCatching {
+    override suspend fun startCheckout(address: Address, method: PaymentMethod, couponId: String?): Result<CheckoutSession> = runCatching {
         val uid = uid()
+        val coupon = couponId?.let { rewards.usableCoupon(uid, it) ?: throw UserFacingException("That coupon has expired or was already used.") }
+        val plus = accounts.profileNow(uid)?.membership?.active()?.hasPlusPerks == true
         if (!address.isComplete) throw UserFacingException("Please fill in the delivery address.")
         delay(500) // feels like a network call
         update { s ->
@@ -213,7 +217,10 @@ class DemoShopRepository @Inject constructor(
                 if (p.stock < line.quantity) throw UserFacingException("Only ${p.stock} left of ${p.title}.")
                 OrderItem(p.toSummary(), line.variant, line.quantity, p.price)
             }
-            val totals = CartTotals.of(items.map { CartItem(it.product, it.variant, it.quantity) })
+            val totals = CartTotals.of(items.map { CartItem(it.product, it.variant, it.quantity) }, coupon, freeDelivery = plus)
+            if (coupon != null && totals.discount == 0 && !coupon.waivesDelivery(totals.subtotal)) {
+                throw UserFacingException("Add ${formatRupees(coupon.minOrder - totals.subtotal)} more to use this coupon.")
+            }
             val now = System.currentTimeMillis()
             val order = Order(
                 id = "OF" + UUID.randomUUID().toString().replace("-", "").take(10).uppercase(),
@@ -221,6 +228,8 @@ class DemoShopRepository @Inject constructor(
                 items = items,
                 subtotal = totals.subtotal,
                 deliveryFee = totals.deliveryFee,
+                discount = totals.discount,
+                couponId = coupon?.id.orEmpty(),
                 total = totals.total,
                 address = address,
                 paymentMethod = method,
@@ -256,7 +265,7 @@ class DemoShopRepository @Inject constructor(
                 carts = s.carts + (uid to emptyList()),
                 sold = sold,
             ) to placed
-        }
+        }.also { placed -> if (placed.couponId.isNotEmpty()) rewards.markCouponUsed(uid, placed.couponId) }
     }
 
     override fun orders(): Flow<List<Order>> = perUser(emptyList()) { uid ->

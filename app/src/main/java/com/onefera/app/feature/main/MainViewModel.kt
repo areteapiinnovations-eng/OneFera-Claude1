@@ -26,6 +26,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import com.onefera.app.data.rewards.RewardsRepository
 import javax.inject.Inject
 
 data class MainUiState(
@@ -46,6 +49,7 @@ class MainViewModel @Inject constructor(
     private val settings: SettingsRepository,
     notifications: NotificationRepository,
     backendConfig: BackendConfig,
+    private val rewards: RewardsRepository,
 ) : ViewModel() {
 
     /** Unread notifications, for the bell badge. */
@@ -94,6 +98,19 @@ class MainViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
+
+    init {
+        // Daily check-in happens automatically the first time the app is opened each day.
+        viewModelScope.launch {
+            state.first { it.profile != null }
+            rewards.checkIn().onSuccess { r ->
+                if (!r.alreadyCheckedIn) {
+                    delay(1_500) // let the screen settle so the snackbar is seen
+                    _messages.emit("🔥 Day ${r.streak} streak · +${r.auraGained} Aura. Your Mystery Box is ready 🎁")
+                }
+            }
+        }
+    }
 
     fun toggleAccountMode() {
         val s = state.value

@@ -270,7 +270,7 @@ private fun OrderBody(o: Order, padding: PaddingValues, justPlaced: Boolean, can
                 }
             }
         }
-        TotalsCard(CartTotals(o.subtotal, savings = o.items.sumOf { (it.product.mrp - it.price).coerceAtLeast(0) * it.quantity }, deliveryFee = o.deliveryFee))
+        TotalsCard(CartTotals(o.subtotal, savings = o.items.sumOf { (it.product.mrp - it.price).coerceAtLeast(0) * it.quantity } + o.discount, deliveryFee = o.deliveryFee, discount = o.discount))
         GlassCard(Modifier.fillMaxWidth()) {
             Text("Delivering to", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))

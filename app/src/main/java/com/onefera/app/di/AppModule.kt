@@ -24,6 +24,9 @@ import com.onefera.app.data.social.PostRepository
 import com.onefera.app.data.social.SocialRepository
 import com.onefera.app.data.social.StoryRepository
 import com.onefera.app.data.shop.ShopRepository
+import com.onefera.app.data.rewards.RewardsRepository
+import com.onefera.app.data.firebase.FirestoreRewardsRepository
+import com.onefera.app.data.demo.DemoRewardsRepository
 import com.onefera.app.data.seller.SellerRepository
 import com.onefera.app.data.firebase.FirestoreSellerRepository
 import com.onefera.app.data.user.FirestoreUserRepository
@@ -120,4 +123,12 @@ object AppModule {
         firestore: Provider<FirestoreSellerRepository>,
         demo: Provider<DemoShopRepository>,
     ): SellerRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    @Provides
+    @Singleton
+    fun provideRewardsRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestoreRewardsRepository>,
+        demo: Provider<DemoRewardsRepository>,
+    ): RewardsRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
 }

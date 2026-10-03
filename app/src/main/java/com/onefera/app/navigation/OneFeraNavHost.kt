@@ -36,6 +36,9 @@ import com.onefera.app.feature.main.MainScreen
 import com.onefera.app.feature.onboarding.OnboardingScreen
 import com.onefera.app.feature.profile.EditProfileScreen
 import com.onefera.app.feature.settings.SettingsScreen
+import com.onefera.app.feature.rewards.LeaderboardScreen
+import com.onefera.app.feature.rewards.MembershipScreen
+import com.onefera.app.feature.rewards.RewardsScreen
 import com.onefera.app.feature.seller.ListingEditorScreen
 import com.onefera.app.feature.seller.SellerHubScreen
 import com.onefera.app.feature.seller.SellerOrderScreen
@@ -65,6 +68,7 @@ fun OneFeraNavHost(
             "post" -> if (value.isNotEmpty()) navController.navigate(PostDetailRoute(value))
             "user" -> if (value.isNotEmpty()) navController.navigate(UserProfileRoute(value))
             "notifications" -> navController.navigate(NotificationsRoute)
+            "rewards" -> navController.navigate(RewardsRoute)
             "order" -> if (value.isNotEmpty()) navController.navigate(OrderRoute(value))
             "product" -> if (value.isNotEmpty()) navController.navigate(ProductRoute(value))
             "sellerorder" -> if (value.isNotEmpty()) navController.navigate(SellerOrderRoute(value))
@@ -102,6 +106,9 @@ fun OneFeraNavHost(
             openSellerHub = { navController.navigate(SellerHubRoute) { launchSingleTop = true } },
             editListing = { navController.navigate(ListingEditorRoute(it)) },
             openSellerOrder = { navController.navigate(SellerOrderRoute(it)) },
+            openRewards = { navController.navigate(RewardsRoute) { launchSingleTop = true } },
+            openLeaderboard = { navController.navigate(LeaderboardRoute) { launchSingleTop = true } },
+            openMembership = { navController.navigate(MembershipRoute) { launchSingleTop = true } },
             back = { navController.popBackStack() },
         )
     }
@@ -192,6 +199,9 @@ fun OneFeraNavHost(
             popExitTransition = { slideOutVertically(tween(280)) { it / 3 } + fadeOut(tween(280)) },
         ) { ListingEditorScreen(onBack = { navController.popBackStack() }) }
         composable<SellerOrderRoute> { SellerOrderScreen(onBack = { navController.popBackStack() }) }
+        composable<RewardsRoute> { RewardsScreen(onBack = { navController.popBackStack() }) }
+        composable<LeaderboardRoute> { LeaderboardScreen(onBack = { navController.popBackStack() }) }
+        composable<MembershipRoute> { MembershipScreen(onBack = { navController.popBackStack() }) }
         composable<NewChatRoute> {
             NewChatScreen(
                 onBack = { navController.popBackStack() },

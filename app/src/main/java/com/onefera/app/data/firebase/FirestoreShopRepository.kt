@@ -136,11 +136,11 @@ class FirestoreShopRepository @Inject constructor(
         user(auth.currentUid()).collection("addresses").document("default").set(address.toMap()).await()
     }
 
-    override suspend fun startCheckout(address: Address, method: PaymentMethod): Result<CheckoutSession> = runFriendly {
+    override suspend fun startCheckout(address: Address, method: PaymentMethod, couponId: String?): Result<CheckoutSession> = runFriendly {
         auth.currentUid()
         if (!address.isComplete) throw UserFacingException("Please fill in the delivery address.")
         if (cart().first().isEmpty()) throw UserFacingException("Your cart is empty.")
-        val result = call("startCheckout", mapOf("address" to address.toMap(), "method" to method.name))
+        val result = call("startCheckout", mapOf("address" to address.toMap(), "method" to method.name, "couponId" to couponId))
         CheckoutSession(
             orderId = result["orderId"] as? String ?: throw UserFacingException("Checkout failed. Please try again."),
             amount = (result["amount"] as? Number)?.toInt() ?: 0,
@@ -271,6 +271,8 @@ internal fun DocumentSnapshot.toOrder(): Order = Order(
     }.orEmpty(),
     subtotal = get("subtotal").asInt(),
     deliveryFee = get("deliveryFee").asInt(),
+    discount = get("discount").asInt(),
+    couponId = getString("couponId").orEmpty(),
     total = get("total").asInt(),
     address = (get("address") as? Map<*, *>).toAddress(),
     paymentMethod = runCatching { PaymentMethod.valueOf(getString("paymentMethod").orEmpty()) }.getOrDefault(PaymentMethod.Upi),

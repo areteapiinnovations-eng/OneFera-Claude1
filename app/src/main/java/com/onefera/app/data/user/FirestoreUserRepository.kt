@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.onefera.app.data.backend.UserFacingException
 import com.onefera.app.data.model.AccountMode
+import com.onefera.app.data.model.MembershipPlan
 import com.onefera.app.data.model.ProfileUpdate
 import com.onefera.app.data.model.UserProfile
 import kotlinx.coroutines.channels.awaitClose
@@ -168,4 +169,7 @@ private fun DocumentSnapshot.toUserProfile(): UserProfile = UserProfile(
     profileViews = getLong("profileViews")?.toInt() ?: 0,
     createdAt = getTimestamp("createdAt")?.toDate()?.time ?: 0L,
     lastActiveAt = getLong("lastActiveAt") ?: 0L,
+    lastCheckInDay = getString("lastCheckInDay").orEmpty(),
+    membershipPlan = runCatching { MembershipPlan.valueOf(getString("membershipPlan").orEmpty()) }.getOrDefault(MembershipPlan.None),
+    membershipExpiresAt = getLong("membershipExpiresAt") ?: 0L,
 )

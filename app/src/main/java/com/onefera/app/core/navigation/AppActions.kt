@@ -27,6 +27,9 @@ data class AppActions(
     /** Opens the listing editor; an empty id creates a new listing. */
     val editListing: (productId: String) -> Unit = {},
     val openSellerOrder: (orderId: String) -> Unit = {},
+    val openRewards: () -> Unit = {},
+    val openLeaderboard: () -> Unit = {},
+    val openMembership: () -> Unit = {},
     val back: () -> Unit = {},
 )
 

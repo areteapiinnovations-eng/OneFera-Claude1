@@ -27,6 +27,8 @@ data class SellerStats(
     val outOfStock: Int = 0,
     val lowStock: List<Product> = emptyList(),
     val last7Days: List<DaySales> = emptyList(),
+    /** Seller Pro chart. */
+    val last30Days: List<DaySales> = emptyList(),
     val revenueLast7Days: Int = 0,
     val revenuePrevious7Days: Int = 0,
     val topProducts: List<TopProduct> = emptyList(),
@@ -57,6 +59,8 @@ data class SellerStats(
             val days = (6 downTo 0).map { today - it * DAY }
             val byDay = live.groupBy { startOfDay(it.createdAt, timeZone) }
             val last7 = days.map { day -> byDay[day].orEmpty().let { DaySales(day, it.sumOf { o -> o.myRevenue() }, it.size) } }
+            val last30 = (29 downTo 0).map { today - it * DAY }
+                .map { day -> byDay[day].orEmpty().let { DaySales(day, it.sumOf { o -> o.myRevenue() }, it.size) } }
             val previousStart = today - 13 * DAY
             val previous = live.filter { it.createdAt >= previousStart && it.createdAt < today - 6 * DAY }.sumOf { it.myRevenue() }
 
@@ -81,6 +85,7 @@ data class SellerStats(
                 outOfStock = listings.count { !it.inStock },
                 lowStock = listings.filter { it.stock in 1..LOW_STOCK }.sortedBy { it.stock },
                 last7Days = last7,
+                last30Days = last30,
                 revenueLast7Days = last7.sumOf { it.revenue },
                 revenuePrevious7Days = previous,
                 topProducts = top,

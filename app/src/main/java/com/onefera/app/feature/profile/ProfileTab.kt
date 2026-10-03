@@ -56,6 +56,7 @@ import com.onefera.app.core.designsystem.component.GradientTag
 import com.onefera.app.core.designsystem.component.gradientTint
 import com.onefera.app.core.designsystem.theme.OneFeraTheme
 import com.onefera.app.data.model.AccountMode
+import com.onefera.app.data.model.MembershipPlan
 import com.onefera.app.data.model.AuraGrade
 import com.onefera.app.data.model.UserProfile
 import com.onefera.app.feature.main.MainUiState
@@ -167,6 +168,8 @@ private fun ProfileContent(
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             GradientTag("Aura ${profile.auraGrade.label} · ${profile.auraPoints}")
                             if (profile.accountMode == AccountMode.Seller) GradientTag("🏪 Seller")
+                            val plan = profile.membership.active()
+                            if (plan != MembershipPlan.None) GradientTag(if (plan == MembershipPlan.SellerPro) "PRO" else "+")
                         }
                         if (profile.city.isNotBlank()) {
                             Spacer(Modifier.height(4.dp))
@@ -337,8 +340,9 @@ private fun ProfileMenuSheet(
             MenuRow(R.drawable.ic_share, "Share profile") { close(onShare) }
             MenuRow(R.drawable.ic_edit, "Edit profile") { close(onEditProfile) }
             MenuRow(R.drawable.ic_settings, "Settings") { close(onOpenSettings) }
-            MenuRow(R.drawable.ic_leaderboard, "Aura leaderboard", soon = true) { close { onComingSoon("The Aura leaderboard drops soon ⚡") } }
-            MenuRow(R.drawable.ic_crown_filled, "Membership", soon = true) { close { onComingSoon("OneFera+ and Seller Pro are coming soon 💎") } }
+            MenuRow(R.drawable.ic_sparkle_filled, "Rewards & Mystery Box") { close(actions.openRewards) }
+            MenuRow(R.drawable.ic_leaderboard, "Aura leaderboard") { close(actions.openLeaderboard) }
+            MenuRow(R.drawable.ic_crown_filled, "Membership") { close(actions.openMembership) }
             if (isSeller) MenuRow(R.drawable.ic_storefront, "Seller hub") { close(actions.openSellerHub) }
             MenuRow(R.drawable.ic_swap, if (isSeller) "Switch to personal" else "Switch to seller") { close(onToggleAccountMode) }
             MenuRow(R.drawable.ic_logout, "Log out", tint = MaterialTheme.colorScheme.error) { close(onLogout) }

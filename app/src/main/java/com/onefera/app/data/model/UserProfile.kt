@@ -30,8 +30,13 @@ data class UserProfile(
     val createdAt: Long = 0L,
     /** Last time the app was open (for "Active now"). */
     val lastActiveAt: Long = 0L,
+    /** Day of the last daily check-in (yyyy-MM-dd, India time); drives the streak. */
+    val lastCheckInDay: String = "",
+    val membershipPlan: MembershipPlan = MembershipPlan.None,
+    val membershipExpiresAt: Long = 0L,
 ) {
     val auraGrade: AuraGrade get() = AuraGrade.forPoints(auraPoints)
+    val membership: Membership get() = Membership(membershipPlan, membershipExpiresAt)
 }
 
 /** Fields a user can change from Edit Profile. */

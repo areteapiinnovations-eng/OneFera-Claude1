@@ -183,6 +183,7 @@ fun TotalsCard(totals: CartTotals, modifier: Modifier = Modifier) {
         Spacer(Modifier.size(8.dp))
         TotalLine("Items", formatRupees(totals.subtotal))
         TotalLine("Delivery", if (totals.deliveryFee == 0) "FREE" else formatRupees(totals.deliveryFee), if (totals.deliveryFee == 0) StatusColors.Success else null)
+        if (totals.discount > 0) TotalLine("Coupon", "−" + formatRupees(totals.discount), StatusColors.Success)
         if (totals.deliveryFee > 0) {
             Text(
                 "Add ${formatRupees(Product.FREE_DELIVERY_ABOVE - totals.subtotal)} more for free delivery",

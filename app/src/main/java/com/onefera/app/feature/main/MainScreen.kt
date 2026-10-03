@@ -126,8 +126,8 @@ fun MainScreen(
                             profile = state.profile,
                             unread = unread,
                             onCreate = { showCreate = true },
-                            onStreak = { tab = MainTab.Home },
-                            onAura = { tab = MainTab.You },
+                            onStreak = actions.openRewards,
+                            onAura = actions.openLeaderboard,
                             onNotifications = actions.openNotifications,
                         )
                         storyUpload?.let { progress ->

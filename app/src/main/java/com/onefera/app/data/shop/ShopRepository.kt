@@ -30,7 +30,7 @@ interface ShopRepository {
      * Step 1 of checkout: the backend re-prices the cart from the catalogue, checks stock and
      * creates an order awaiting payment (plus a Razorpay order when live payments are on).
      */
-    suspend fun startCheckout(address: Address, method: PaymentMethod): Result<CheckoutSession>
+    suspend fun startCheckout(address: Address, method: PaymentMethod, couponId: String? = null): Result<CheckoutSession>
 
     /** Step 2: the payment result goes back to the backend, which verifies it and confirms the order. */
     suspend fun confirmPayment(session: CheckoutSession, payment: PaymentResult): Result<Order>

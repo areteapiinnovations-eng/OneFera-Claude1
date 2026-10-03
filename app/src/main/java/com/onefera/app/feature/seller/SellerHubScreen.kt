@@ -73,6 +73,12 @@ import com.onefera.app.data.model.Product
 import com.onefera.app.data.model.formatRupees
 import com.onefera.app.data.seller.SellerRepository
 import com.onefera.app.data.seller.SellerStats
+import com.onefera.app.data.model.MembershipPlan
+import com.onefera.app.data.model.Rewards
+import com.onefera.app.data.user.UserRepository
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import com.onefera.app.feature.shop.ProductImage
 import com.onefera.app.feature.shop.QuantityStepper
 import com.onefera.app.feature.shop.StatusBadge
@@ -104,23 +110,31 @@ enum class OrderFilter(val label: String, val matches: (OrderStatus) -> Boolean)
 data class SellerHubUiState(
     val loading: Boolean = true,
     val sellerId: String = "",
+    val pro: Boolean = false,
     val listings: List<Product> = emptyList(),
     val orders: List<Order> = emptyList(),
     val stats: SellerStats = SellerStats(),
 )
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SellerHubViewModel @Inject constructor(
     auth: AuthRepository,
+    users: UserRepository,
     private val seller: SellerRepository,
 ) : ViewModel() {
+    private val pro = auth.uidFlow().flatMapLatest { uid -> if (uid == null) flowOf(null) else users.observeProfile(uid) }
+        .map { it?.membership?.active() == MembershipPlan.SellerPro }
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages: Flow<String> = _messages.receiveAsFlow()
 
-    val state: StateFlow<SellerHubUiState> = combine(auth.uidFlow(), seller.myListings(), seller.sellerOrders()) { uid, listings, orders ->
+    val state: StateFlow<SellerHubUiState> = combine(auth.uidFlow(), pro, seller.myListings(), seller.sellerOrders()) { uid, isPro, listings, orders ->
         val me = uid.orEmpty()
-        SellerHubUiState(false, me, listings, orders, SellerStats.compute(me, orders, listings))
+        SellerHubUiState(false, me, isPro, listings, orders, SellerStats.compute(me, orders, listings))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SellerHubUiState())
+
+    /** Free sellers can keep up to [Rewards.FREE_LISTING_LIMIT] listings; Seller Pro is unlimited. */
+    val canAddListing: Boolean get() = state.value.pro || state.value.listings.size < Rewards.FREE_LISTING_LIMIT
 
     fun setStock(product: Product, stock: Int) = viewModelScope.launch {
         seller.setStock(product.id, stock).onFailure { _messages.send(it.message ?: "Couldn't update stock.") }
@@ -152,7 +166,17 @@ fun SellerHubScreen(onBack: () -> Unit, viewModel: SellerHubViewModel = hiltView
             },
             bottomBar = {
                 Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp)) {
-                    GradientButton("New listing", onClick = { actions.editListing("") }, trailingIcon = R.drawable.ic_add)
+                    GradientButton(
+                        "New listing",
+                        onClick = {
+                            if (viewModel.canAddListing) {
+                                actions.editListing("")
+                            } else {
+                                actions.openMembership()
+                            }
+                        },
+                        trailingIcon = R.drawable.ic_add,
+                    )
                 }
             },
             snackbarHost = { SnackbarHost(snackbar) },
@@ -164,7 +188,12 @@ fun SellerHubScreen(onBack: () -> Unit, viewModel: SellerHubViewModel = hiltView
             ) {
                 if (state.loading) return@LazyColumn
                 when (section) {
-                    SellerSection.Overview -> overview(state, onSeeOrders = { section = SellerSection.Orders; filter = OrderFilter.ToShip }, onRestock = viewModel::setStock)
+                    SellerSection.Overview -> overview(
+                        state,
+                        onSeeOrders = { section = SellerSection.Orders; filter = OrderFilter.ToShip },
+                        onRestock = viewModel::setStock,
+                        onUpgrade = actions.openMembership,
+                    )
                     SellerSection.Listings -> listings(state.listings, onStock = viewModel::setStock)
                     SellerSection.Orders -> orders(state.orders, state.sellerId, filter, onFilter = { filter = it })
                 }
@@ -175,7 +204,7 @@ fun SellerHubScreen(onBack: () -> Unit, viewModel: SellerHubViewModel = hiltView
 
 // region Overview
 
-private fun LazyListScope.overview(state: SellerHubUiState, onSeeOrders: () -> Unit, onRestock: (Product, Int) -> Unit) {
+private fun LazyListScope.overview(state: SellerHubUiState, onSeeOrders: () -> Unit, onRestock: (Product, Int) -> Unit, onUpgrade: () -> Unit) {
     val stats = state.stats
     if (state.listings.isEmpty() && state.orders.isEmpty()) {
         item {
@@ -196,7 +225,17 @@ private fun LazyListScope.overview(state: SellerHubUiState, onSeeOrders: () -> U
             StatTile("Delivered", stats.delivered, R.drawable.ic_check_circle_filled, Modifier.weight(1f))
         }
     }
-    item { SalesChart(stats) }
+    item { SalesChart(stats, pro = state.pro, onUpgrade = onUpgrade) }
+    if (!state.pro && state.listings.size >= Rewards.FREE_LISTING_LIMIT) {
+        item {
+            Text(
+                "You've hit ${Rewards.FREE_LISTING_LIMIT} listings on the free plan. Go Seller Pro for unlimited listings.",
+                style = MaterialTheme.typography.labelLarge,
+                color = StatusColors.Warning,
+                modifier = Modifier.clickable(onClick = onUpgrade),
+            )
+        }
+    }
     item {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatTile("Live listings", stats.activeListings, R.drawable.ic_storefront, Modifier.weight(1f))
@@ -303,17 +342,24 @@ private fun StatTile(label: String, value: Int, icon: Int, modifier: Modifier, h
 }
 
 @Composable
-private fun SalesChart(stats: SellerStats) {
+private fun SalesChart(stats: SellerStats, pro: Boolean, onUpgrade: () -> Unit) {
     val extras = OneFeraTheme.extras
-    val days = stats.last7Days
+    var month by rememberSaveable { mutableStateOf(false) }
+    val days = if (month && pro) stats.last30Days else stats.last7Days
     val max = (days.maxOfOrNull { it.revenue } ?: 0).coerceAtLeast(1)
     val dayFormat = remember { SimpleDateFormat("EEE", Locale.getDefault()) }
+    val dayLabel = remember { SimpleDateFormat("d/M", Locale.getDefault()) }
     val gradient = extras.gradient
     val empty = extras.glassBorder
     GlassCard(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Last 7 days", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            Text(formatRupees(stats.revenueLast7Days), style = MaterialTheme.typography.titleMedium)
+            Column(Modifier.weight(1f)) {
+                Text(if (days.size > 7) "Last 30 days" else "Last 7 days", style = MaterialTheme.typography.titleMedium)
+                Text(formatRupees(days.sumOf { it.revenue }), style = MaterialTheme.typography.labelLarge, color = extras.muted)
+            }
+            SelectChip("7D", selected = !month || !pro, onClick = { month = false })
+            Spacer(Modifier.width(6.dp))
+            SelectChip(if (pro) "30D" else "30D 🔒", selected = month && pro, onClick = { if (pro) month = true else onUpgrade() })
         }
         Spacer(Modifier.height(12.dp))
         Canvas(
@@ -336,15 +382,24 @@ private fun SalesChart(stats: SellerStats) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        Row(Modifier.fillMaxWidth()) {
-            days.forEach { day ->
-                Text(
-                    dayFormat.format(Date(day.dayStart)).take(3),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = extras.muted,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f),
-                )
+        if (days.size <= 7) {
+            Row(Modifier.fillMaxWidth()) {
+                days.forEach { day ->
+                    Text(
+                        dayFormat.format(Date(day.dayStart)).take(3),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = extras.muted,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        } else {
+            // 30-day view: a few date markers along the axis.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                listOf(0, 10, 20, days.lastIndex).forEach { i ->
+                    Text(dayLabel.format(Date(days[i].dayStart)), style = MaterialTheme.typography.labelSmall, color = extras.muted)
+                }
             }
         }
     }

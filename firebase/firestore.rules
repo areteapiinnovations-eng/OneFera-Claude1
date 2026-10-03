@@ -20,7 +20,8 @@ service cloud.firestore {
     // Fields only Cloud Functions (admin SDK) may change.
     function serverOwned() {
       return ['verified', 'auraPoints', 'streakDays', 'postsCount', 'followersCount',
-              'followingCount', 'profileViews', 'createdAt', 'uid', 'email', 'birthDate', 'isMinor'];
+              'followingCount', 'profileViews', 'createdAt', 'uid', 'email', 'birthDate', 'isMinor',
+              'lastCheckInDay', 'membershipPlan', 'membershipExpiresAt'];
     }
 
     function validProfileText(d) {
@@ -113,6 +114,18 @@ service cloud.firestore {
           && incoming().variant is string && incoming().variant.size() <= 30
           && incoming().product.id is string
           && (itemKey == incoming().product.id || itemKey.matches(incoming().product.id + '__.+'));
+      }
+
+      // ---- rewards (written only by Cloud Functions)
+
+      match /coupons/{couponId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      match /boxes/{day} {
+        allow read: if isOwner(uid);
+        allow write: if false;
       }
 
       match /addresses/{addressId} {

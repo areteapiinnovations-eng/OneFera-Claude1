@@ -52,6 +52,14 @@ Switch any account to Seller from the profile menu, then open the **Seller hub**
 
 Sellers get a push for each new sale. In demo mode, a demo shopper buys a new listing about 20 seconds after it goes live, so the whole flow can be tried on one phone.
 
+### Aura, streaks and rewards
+
+- **Aura** (0–1000; grades C, B, A, S and SSS) is earned for posting and for receiving likes, comments and followers. All Aura is granted server-side.
+- **Daily streak:** the first time the app opens each day (India time), the check-in adds +5 Aura, with a +25 bonus every 7th day. OneFera+ members get double. The 🔥 pill in the top bar opens Rewards.
+- **Mystery Box:** one a day after checking in (two with OneFera+). It contains Aura (10, 25 or 50) or a coupon: ₹50 off ₹499+, 10% off ₹999+ capped at ₹200, or free delivery. Coupons last 14 days and appear at checkout.
+- **Leaderboard:** global, friends and city rankings, with a podium for the top 3. The ⚡ pill in the top bar opens it.
+- **Memberships:** OneFera+ (₹199/mo) gives 2 boxes a day, double streak Aura, free delivery and a badge. Seller Pro (₹799/mo) adds unlimited listings (free sellers get 25), 30-day analytics and a Pro badge. Purchases are simulated in this build. Google Play requires Play Billing for digital subscriptions, and it is wired in with release hardening.
+
 ### Payments (Razorpay)
 
 Checkout runs in **simulated mode** by default. The full flow works end to end: the server re-prices the cart, the payment sheet appears, the order is confirmed and stock is reduced. No real money moves.
@@ -73,7 +81,7 @@ Checkout runs in **simulated mode** by default. The full flow works end to end: 
 | Firestore rules | `firebase/firestore.rules` | Who can read and write what. Clients can't change counters, Aura or other people's notifications. Followers-only posts are hidden from non-followers. |
 | Storage rules | `firebase/storage.rules` | Avatars (≤ 5 MB), post photos (≤ 15 MB) and videos (≤ 100 MB), stories |
 | Indexes | `firebase/firestore.indexes.json` | Feed, reels, profile grid, hashtag, notification and order queries |
-| Cloud Functions | `firebase/functions` (TypeScript) | Like, comment, follower and post counters; Aura points; notifications plus push; chat previews, unread counts and message push; hashtag counts; media and expired-story cleanup; checkout (`startCheckout`, `confirmPayment`, `cancelOrder`) and the simulated courier |
+| Cloud Functions | `firebase/functions` (TypeScript) | Like, comment, follower and post counters; Aura points; notifications plus push; chat previews, unread counts and message push; hashtag counts; media and expired-story cleanup; checkout (`startCheckout` with coupons, `confirmPayment`, `cancelOrder`) and the simulated courier; rewards (`dailyCheckIn`, `openMysteryBox`, `startMembership`, `cancelMembership`) |
 | Shop data | `products`, `orders`, `users/{uid}/cart, wishlist, addresses` | Anyone signed in can read the catalogue. Seller accounts create and edit only their own listings, and can't touch sales counters or ratings. Carts, wishlists and addresses are private. Orders are readable by the buyer and the sellers in them, and written only by functions (`updateOrderStatus` for sellers). |
 | Rules tests | `firebase/rules-tests` | Run with `npm ci && npm test` (starts the Firestore emulator). These also run in CI. |
 
@@ -119,6 +127,7 @@ app/src/main/java/com/onefera/app/
     ├── create/                     new post / reel (photos up to 10, video up to 90 s)
     ├── reels/                      full-screen vertical video player
     ├── search/                     people, hashtags, products, recent and trending searches, tag pages
+    ├── rewards/                    Rewards (streak, Mystery Box, coupons), leaderboard, memberships
     ├── seller/                     Seller hub (sales, 7-day chart, best sellers, low stock), listing editor
     │                               with photos, inventory, orders to fulfil
     ├── shop/                       shop tab (categories, Drop of the Day, filters, sort), product page,
@@ -150,5 +159,5 @@ branding/                           source logo and icon files (Play Store icon:
 | 3 | Real-time chat (replies, attachments, quick vibes), push notifications | ✅ |
 | 4 | Shop: catalogue, filters, product page, wishlist, cart, checkout (Razorpay, simulated), orders, product tags | ✅ |
 | 5 | Seller mode: dashboard, listings, inventory, orders, analytics | ✅ |
-| 6 | Aura engine, streaks, leaderboard, Mystery Box, memberships | next |
-| 7 | Near (people + stores), release hardening, Play Store listing | |
+| 6 | Aura engine, streaks, leaderboard, Mystery Box, memberships | ✅ |
+| 7 | Near (people + stores), release hardening, Play Store listing | next |

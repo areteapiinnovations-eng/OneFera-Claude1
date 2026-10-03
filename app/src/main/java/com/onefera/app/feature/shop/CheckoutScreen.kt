@@ -71,6 +71,14 @@ import com.onefera.app.data.model.formatRupees
 import com.onefera.app.data.shop.CheckoutSession
 import com.onefera.app.data.shop.PaymentResult
 import com.onefera.app.data.shop.ShopRepository
+import com.onefera.app.data.auth.AuthRepository
+import com.onefera.app.data.firebase.uidFlow
+import com.onefera.app.data.model.Coupon
+import com.onefera.app.data.rewards.RewardsRepository
+import com.onefera.app.data.user.UserRepository
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -94,8 +102,13 @@ data class CheckoutUiState(
     val busy: Boolean = false,
     /** Non-null while the payment sheet is open. */
     val session: CheckoutSession? = null,
+    val coupons: List<Coupon> = emptyList(),
+    val couponId: String? = null,
+    /** OneFera+ perk. */
+    val freeDelivery: Boolean = false,
 ) {
-    val totals: CartTotals get() = CartTotals.of(items)
+    val coupon: Coupon? get() = coupons.firstOrNull { it.id == couponId }
+    val totals: CartTotals get() = CartTotals.of(items, coupon, freeDelivery)
 }
 
 sealed interface CheckoutEvent {
@@ -103,16 +116,32 @@ sealed interface CheckoutEvent {
     data class Placed(val orderId: String) : CheckoutEvent
 }
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
-class CheckoutViewModel @Inject constructor(private val shop: ShopRepository) : ViewModel() {
+class CheckoutViewModel @Inject constructor(
+    private val shop: ShopRepository,
+    rewards: RewardsRepository,
+    auth: AuthRepository,
+    users: UserRepository,
+) : ViewModel() {
     private val form = MutableStateFlow(CheckoutForm())
     private val busy = MutableStateFlow(false)
     private val session = MutableStateFlow<CheckoutSession?>(null)
+    private val couponId = MutableStateFlow<String?>(null)
+    private val plus = auth.uidFlow().flatMapLatest { uid -> if (uid == null) flowOf(null) else users.observeProfile(uid) }
+        .map { it?.membership?.active()?.hasPlusPerks == true }
     private val _events = Channel<CheckoutEvent>(Channel.BUFFERED)
     val events: Flow<CheckoutEvent> = _events.receiveAsFlow()
 
-    val state: StateFlow<CheckoutUiState> = combine(shop.cart(), form, busy, session) { items, f, b, s -> CheckoutUiState(items, f, b, s) }
+    val state: StateFlow<CheckoutUiState> = combine(
+        combine(shop.cart(), form, busy, session) { items, f, b, s -> CheckoutUiState(items, f, b, s) },
+        rewards.coupons(),
+        couponId,
+        plus,
+    ) { base, coupons, selected, isPlus -> base.copy(coupons = coupons, couponId = selected, freeDelivery = isPlus) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CheckoutUiState())
+
+    fun toggleCoupon(id: String) = couponId.update { if (it == id) null else id }
 
     init {
         // Pre-fill the last used address.
@@ -134,7 +163,7 @@ class CheckoutViewModel @Inject constructor(private val shop: ShopRepository) : 
         if (busy.value) return
         busy.value = true
         viewModelScope.launch {
-            shop.startCheckout(f.address, f.method)
+            shop.startCheckout(f.address, f.method, state.value.coupon?.id)
                 .onSuccess { s ->
                     if (f.method == PaymentMethod.Cod) {
                         confirm(s, PaymentResult("cod_" + UUID.randomUUID().toString().take(8)))
@@ -231,6 +260,9 @@ fun CheckoutScreen(onBack: () -> Unit, onPlaced: (String) -> Unit, viewModel: Ch
             ) {
                 AddressForm(state.form.address, state.form.showErrors, viewModel::onAddress)
                 PaymentMethods(state.form.method, viewModel::onMethod)
+                if (state.coupons.isNotEmpty() || state.freeDelivery) {
+                    CouponPicker(state, onToggle = viewModel::toggleCoupon)
+                }
                 TotalsCard(state.totals)
                 Text(
                     "Payments are processed by Razorpay. OneFera never sees your card or UPI PIN.",
@@ -314,6 +346,46 @@ private fun PaymentMethods(selected: PaymentMethod, onSelect: (PaymentMethod) ->
                 Column(Modifier.weight(1f)) {
                     Text(method.label, style = MaterialTheme.typography.bodyLarge)
                     Text(method.hint, style = MaterialTheme.typography.labelSmall, color = OneFeraTheme.extras.muted)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CouponPicker(state: CheckoutUiState, onToggle: (String) -> Unit) {
+    val extras = OneFeraTheme.extras
+    GlassCard(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(R.drawable.ic_sell), contentDescription = null, modifier = Modifier.size(20.dp).gradientTint(extras.gradientBrush()))
+            Spacer(Modifier.width(8.dp))
+            Text("Rewards", style = MaterialTheme.typography.titleMedium)
+        }
+        if (state.freeDelivery) {
+            Spacer(Modifier.height(6.dp))
+            Text("OneFera+ · free delivery applied 💎", style = MaterialTheme.typography.labelLarge, color = StatusColors.Success)
+        }
+        val subtotal = state.totals.subtotal
+        state.coupons.forEach { coupon ->
+            val eligible = subtotal >= coupon.minOrder
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable(enabled = eligible, role = Role.Checkbox) { onToggle(coupon.id) }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Checkbox(checked = coupon.id == state.couponId, onCheckedChange = null, enabled = eligible)
+                Spacer(Modifier.width(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(coupon.title, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (eligible) coupon.condition else "Add ${formatRupees(coupon.minOrder - subtotal)} more to use",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = extras.muted,
+                    )
                 }
             }
         }

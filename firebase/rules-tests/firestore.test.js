@@ -349,3 +349,22 @@ describe('seller mode', () => {
     await assertFails(updateDoc(doc(db('sam'), 'orders/o9'), { status: 'Delivered' }));
   });
 });
+
+describe('rewards', () => {
+  it('keeps streaks, memberships, coupons and boxes server-owned', async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'users/alice'), profile('alice'));
+      await setDoc(doc(f, 'users/alice/coupons/c1'), { kind: 'Flat', value: 50, minOrder: 499, used: false, expiresAt: Date.now() + 1e6 });
+      await setDoc(doc(f, 'users/alice/boxes/2026-10-03'), { opened: 1 });
+    });
+    await assertFails(updateDoc(doc(db('alice'), 'users/alice'), { streakDays: 99 }));
+    await assertFails(updateDoc(doc(db('alice'), 'users/alice'), { lastCheckInDay: '2026-10-03' }));
+    await assertFails(updateDoc(doc(db('alice'), 'users/alice'), { membershipPlan: 'Plus', membershipExpiresAt: 9e12 }));
+    await assertSucceeds(getDoc(doc(db('alice'), 'users/alice/coupons/c1')));
+    await assertFails(getDoc(doc(db('bob'), 'users/alice/coupons/c1')));
+    await assertFails(updateDoc(doc(db('alice'), 'users/alice/coupons/c1'), { used: false, value: 5000 }));
+    await assertFails(setDoc(doc(db('alice'), 'users/alice/coupons/free'), { kind: 'Flat', value: 9999, minOrder: 0, used: false }));
+    await assertSucceeds(getDoc(doc(db('alice'), 'users/alice/boxes/2026-10-03')));
+    await assertFails(setDoc(doc(db('alice'), 'users/alice/boxes/2026-10-03'), { opened: 0 }));
+  });
+});
