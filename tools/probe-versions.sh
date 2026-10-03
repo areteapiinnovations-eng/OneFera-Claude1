@@ -28,3 +28,10 @@ g com/google/android/libraries/identity/googleid googleid
 g com/google/android/gms play-services-location
 g androidx/paging paging-compose
 g androidx/camera camera-camera2
+# TEMP: product catalogue probe
+curl -fsS -m 30 'https://dummyjson.com/products?limit=0&select=title,brand,category,price,rating,thumbnail,images' | python3 -c "
+import sys,json
+for p in json.load(sys.stdin)['products']:
+    print('PRODUCT', json.dumps(p))
+" || echo 'PRODUCT probe failed'
+for u in https://cdn.dummyjson.com/product-images/smartphones/iphone-13-pro/thumbnail.webp; do curl -s -o /dev/null -w "IMG %{http_code} %{content_type} $u\n" "$u"; done
