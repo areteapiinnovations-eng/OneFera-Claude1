@@ -45,7 +45,7 @@ fun AuroraBackground(
     val extras = OneFeraTheme.extras
     val colors = extras.gradient
     val base = MaterialTheme.colorScheme.background
-    val glow = if (extras.isDark) 0.42f * intensity else 0.26f * intensity
+    val glow = if (extras.isDark) 0.34f * intensity else 0.24f * intensity
     val reducedMotion = rememberReducedMotion()
     val transition = rememberInfiniteTransition(label = "aurora")
     val phase = if (reducedMotion) {

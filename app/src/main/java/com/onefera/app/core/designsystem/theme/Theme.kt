@@ -3,6 +3,7 @@ package com.onefera.app.core.designsystem.theme
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
@@ -165,8 +166,11 @@ fun OneFeraTheme(
             colorScheme = colorScheme,
             typography = OneFeraTypography,
             shapes = OneFeraShapes,
-            content = content,
-        )
+        ) {
+            // Screens draw straight onto the aurora background rather than a Material Surface,
+            // so set the default text/icon colour here (otherwise it falls back to black).
+            CompositionLocalProvider(LocalContentColor provides colorScheme.onBackground, content = content)
+        }
     }
 }
 
