@@ -3,6 +3,7 @@
 # saves screenshots and fails if the app crashes.
 set -u
 PKG=com.onefera.app.debug
+FAILED_STEPS=0
 OUT=smoke-screenshots
 mkdir -p "$OUT"
 adb logcat -c
@@ -32,11 +33,29 @@ shot() {
   echo "screenshot $1"
 }
 
+# Emulators sometimes show "<System app> isn't responding" dialogs; tap "Wait" to dismiss them.
+dismiss_system_dialogs() {
+  if grep -q "isn&apos;t responding\|isn't responding" /tmp/ui.xml 2>/dev/null; then
+    echo "dismissing a system 'not responding' dialog"
+    python3 - <<'PY' | { read -r x y && timeout 10 adb shell input tap "$x" "$y"; }
+import re
+xml = open('/tmp/ui.xml', encoding='utf-8', errors='ignore').read()
+for m in re.finditer(r'<node [^>]*text="Wait"[^>]*>', xml):
+    b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', m.group(0))
+    if b:
+        x1, y1, x2, y2 = map(int, b.groups()); print((x1 + x2) // 2, (y1 + y2) // 2); break
+PY
+    sleep 2
+    timeout 20 adb exec-out uiautomator dump /dev/tty 2>/dev/null > /tmp/ui.xml || true
+  fi
+}
+
 # Taps the centre of the first UI node whose text (or content-desc) matches $1.
 tap_text() {
   for _ in 1 2 3 4; do
     device_ok || return 1
     timeout 20 adb exec-out uiautomator dump /dev/tty 2>/dev/null > /tmp/ui.xml || true
+    dismiss_system_dialogs
     bounds=$(python3 - "$1" <<'PY'
 import re, sys
 xml = open('/tmp/ui.xml', encoding='utf-8', errors='ignore').read()
@@ -53,9 +72,11 @@ PY
     if [ -n "$bounds" ]; then timeout 10 adb shell input tap $bounds; echo "tapped '$1'"; return 0; fi
     timeout 10 adb shell input swipe 540 1600 540 900 300; sleep 1
   done
-  echo "::warning::could not find '$1'"; return 1
+  echo "::error::could not find '$1'"; FAILED_STEPS=$((FAILED_STEPS + 1)); return 1
 }
 
+# Let the freshly booted system settle so launcher/system ANR dialogs don't cover the app.
+sleep 30
 timeout 120 adb install -r app/build/outputs/apk/debug/app-debug.apk || finish 1
 timeout 60 adb shell am start -W -n "$PKG/com.onefera.app.MainActivity"
 shot 01-onboarding 6
@@ -74,6 +95,10 @@ tap_text "Shop";                      shot 11-shop-upcoming
 if ! timeout 10 adb shell pidof "$PKG" >/dev/null; then
   echo "::error::App process is not running at the end of the smoke test"
   tail -100 "$OUT/logcat.txt"
+  finish 1
+fi
+if [ "$FAILED_STEPS" -gt 0 ]; then
+  echo "::error::$FAILED_STEPS smoke-test step(s) could not be completed"
   finish 1
 fi
 echo "Smoke test passed"
