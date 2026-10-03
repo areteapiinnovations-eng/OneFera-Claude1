@@ -20,12 +20,12 @@ jobs:
       - name: Probe latest dependency versions
         run: ./tools/probe-versions.sh
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         if: hashFiles('gradlew') != ''
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Gradle
         if: hashFiles('gradlew') != ''

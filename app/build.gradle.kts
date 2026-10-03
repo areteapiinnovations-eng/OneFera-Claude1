@@ -24,7 +24,7 @@ val hasReleaseSigning = keystoreProperties.getProperty("storeFile") != null
 
 android {
     namespace = "com.onefera.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.onefera.app"
