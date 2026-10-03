@@ -1,0 +1,58 @@
+rules_version = '2';
+
+// OneFera Firestore security rules (Phase 1: profiles and usernames).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+
+    // Fields only Cloud Functions (admin SDK) may change.
+    function serverOwned() {
+      return ['verified', 'auraPoints', 'streakDays', 'postsCount', 'followersCount',
+              'followingCount', 'profileViews', 'createdAt', 'uid', 'email', 'birthDate', 'isMinor'];
+    }
+
+    function validProfileText(d) {
+      return d.displayName is string && d.displayName.size() >= 2 && d.displayName.size() <= 40
+        && d.username is string && d.username.matches('^[a-z0-9][a-z0-9._]*[a-z0-9_]$')
+        && !d.username.matches('.*[.][.].*')
+        && d.username.size() >= 3 && d.username.size() <= 24
+        && d.bio is string && d.bio.size() <= 160
+        && d.city is string && d.city.size() <= 40
+        && d.vibe is string && d.vibe.size() <= 40;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && validProfileText(request.resource.data)
+        && request.resource.data.verified == false
+        && request.resource.data.auraPoints == 0
+        && request.resource.data.streakDays == 0
+        && request.resource.data.postsCount == 0
+        && request.resource.data.followersCount == 0
+        && request.resource.data.followingCount == 0
+        && request.resource.data.profileViews == 0
+        && request.resource.data.accountMode in ['Personal', 'Seller'];
+
+      allow update: if isOwner(uid)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(serverOwned())
+        && validProfileText(request.resource.data)
+        && request.resource.data.accountMode in ['Personal', 'Seller']
+        && request.resource.data.isPrivate is bool;
+
+      allow delete: if false;
+    }
+
+    // Username claims: one document per handle, owned by the claiming user.
+    match /usernames/{username} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update: if false;
+    }
+  }
+}

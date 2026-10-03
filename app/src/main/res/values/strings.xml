@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OneFera</string>
+    <string name="app_tagline">Connect. Shop. Sell.</string>
+    <string name="app_meaning">One Future Era</string>
+    <string name="default_notification_channel_id">onefera_general</string>
+    <string name="default_notification_channel_name">Activity</string>
+</resources>
