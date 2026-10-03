@@ -57,14 +57,19 @@ tap_text() {
     timeout 20 adb exec-out uiautomator dump /dev/tty 2>/dev/null > /tmp/ui.xml || true
     dismiss_system_dialogs
     bounds=$(python3 - "$1" <<'PY'
-import re, sys
+import html, re, sys
 xml = open('/tmp/ui.xml', encoding='utf-8', errors='ignore').read()
 want = sys.argv[1]
 for m in re.finditer(r'<node [^>]*>', xml):
     n = m.group(0)
     t = re.search(r' text="([^"]*)"', n); d = re.search(r'content-desc="([^"]*)"', n)
     def match(v):
-        return v.startswith(want[:-1]) if want.endswith('*') else v == want
+        v = html.unescape(v)  # the dump escapes &, ' and some emoji
+        if want.endswith('*'):
+            return v.startswith(want[:-1])
+        if want.startswith('*'):
+            return v.endswith(want[1:])
+        return v == want
     if (t and match(t.group(1))) or (d and match(d.group(1))):
         b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', n)
         if b:
@@ -174,7 +179,7 @@ back_to_tabs
 # Near: grant approximate location up front (emulators without a fix fall back to a demo spot).
 timeout 10 adb shell pm grant "$PKG" android.permission.ACCESS_COARSE_LOCATION || true
 tap_text "Near";                      shot 29-near-people 15
-tap_text "🏪 Stores";                 shot 30-near-stores 6
+tap_text "*Stores";                   shot 30-near-stores 6
 
 if ! timeout 10 adb shell pidof "$PKG" >/dev/null; then
   echo "::error::App process is not running at the end of the smoke test"
