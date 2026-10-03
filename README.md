@@ -26,14 +26,24 @@ Requirements: a current Android Studio with its bundled JDK 17+. Devices need An
    - **Firestore Database**, in production mode
    - **Storage**
    - **Cloud Messaging**
-5. Deploy the security rules from this repo using the Firebase CLI:
+5. Deploy the rules, indexes and Cloud Functions from this repo using the Firebase CLI. Cloud Functions need the Blaze (pay-as-you-go) plan; the free monthly quota covers early usage.
    ```bash
    npm i -g firebase-tools
    firebase login
    firebase use <your-project-id>
-   firebase deploy --only firestore:rules,firestore:indexes,storage
+   firebase deploy --only firestore:rules,firestore:indexes,storage,functions
    ```
 6. Rebuild. The demo-mode banner disappears and data is stored live in Firestore.
+
+### What the backend does
+
+| Piece | Where | Purpose |
+|---|---|---|
+| Firestore rules | `firebase/firestore.rules` | Who can read and write what. Clients can't change counters, Aura or other people's notifications. Followers-only posts are hidden from non-followers. |
+| Storage rules | `firebase/storage.rules` | Avatars (≤ 5 MB), post photos (≤ 15 MB) and videos (≤ 100 MB), stories |
+| Indexes | `firebase/firestore.indexes.json` | Feed, reels, profile grid, hashtag and notification queries |
+| Cloud Functions | `firebase/functions` (TypeScript) | Like, comment, follower and post counters; Aura points; notifications plus push; hashtag counts; media and expired-story cleanup |
+| Rules tests | `firebase/rules-tests` | Run with `npm ci && npm test` (starts the Firestore emulator). These also run in CI. |
 
 ## Build an APK / App Bundle (AAB)
 
@@ -72,9 +82,16 @@ app/src/main/java/com/onefera/app/
 └── feature/
     ├── onboarding/  auth/          intro carousel, log in, sign up, forgot password
     ├── main/                       7-tab shell (Home, Shop, Search, You, Chats, Near, Reels)
-    ├── profile/                    profile, menu, edit profile + photo upload
+    ├── feed/  story/               home feed, stories row, story viewer
+    ├── post/                       post card, comments, grid, post detail
+    ├── create/                     new post / reel (photos up to 10, video up to 90 s)
+    ├── reels/                      full-screen vertical video player
+    ├── search/                     people, hashtags, recent and trending searches, tag pages
+    ├── notifications/              activity, follow requests
+    ├── user/                       other people's profiles, follower lists
+    ├── profile/                    your profile, menu, edit profile + photo upload
     └── settings/                   skins, appearance, privacy, notifications
-firebase/                           Firestore + Storage security rules
+firebase/                           rules, indexes, Cloud Functions, rules tests
 branding/                           source logo and icon files (Play Store icon: playstore-icon-512.png)
 ```
 
@@ -91,9 +108,9 @@ branding/                           source logo and icon files (Play Store icon:
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Project, CI, branding, themes, onboarding, auth, app shell, profile, settings | ✅ this build |
-| 2 | Feed & stories, create post, reels player, search, notifications, follow | next |
-| 3 | Real-time chat (replies, attachments, quick vibes), push notifications | |
+| 1 | Project, CI, branding, themes, onboarding, auth, app shell, profile, settings | ✅ |
+| 2 | Feed & stories, create post, reels player, search, notifications, follow | ✅ |
+| 3 | Real-time chat (replies, attachments, quick vibes), push notifications | next |
 | 4 | Shop: catalogue, filters, product page, wishlist, cart, checkout (Razorpay), orders | |
 | 5 | Seller mode: dashboard, listings, inventory, orders, analytics | |
 | 6 | Aura engine, streaks, leaderboard, Mystery Box, memberships | |
