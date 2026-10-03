@@ -112,21 +112,31 @@ hide_keyboard() {
 }
 type_into() { tap_text "$1" && sleep 1 && timeout 10 adb shell input text "$2"; hide_keyboard; }
 tap_text "Shop";                      shot 16-shop 6
-tap_text "Search drops, brands…";     sleep 2
-type_into "Search people, #tags, drops…" "airpods"; shot 17-shop-search 4
-tap_text "Apple Airpods";             shot 18-product 5
+# ATD images ship without a keyboard (IME), so text can't be typed there: reach a product by tapping
+# and stop at the cart. Images with a keyboard run the full search → checkout → payment flow.
+IME=$(timeout 10 adb shell settings get secure default_input_method | tr -d '\r')
+if [ -n "$IME" ] && [ "$IME" != "null" ]; then
+  tap_text "Search drops, brands…";     sleep 2
+  type_into "Search people, #tags, drops…" "airpods"; shot 17-shop-search 4
+  tap_text "Apple Airpods";             shot 18-product 5
+else
+  echo "::notice::No keyboard on this emulator image; skipping the typed checkout steps"
+  tap_text "Lenovo Yoga 920";           shot 18-product 5
+fi
 tap_text "Add to cart";               sleep 2
 tap_text "Cart, 1 items";             shot 19-cart 3
-tap_text "Checkout";                  sleep 3
-type_into "Full name" "Asha"
-type_into "Mobile number" "9876543210"
-type_into "House / flat, street" "12%sMG%sRoad"
-type_into "City" "Pune"
-type_into "PIN code" "411001"
-type_into "State" "Maharashtra"
-shot 20-checkout
-tap_text "Pay securely";              shot 21-payment-sheet 4
-tap_text "Pay ₹*";                    shot 22-order-placed 8
+if [ -n "$IME" ] && [ "$IME" != "null" ]; then
+  tap_text "Checkout";                  sleep 3
+  type_into "Full name" "Asha"
+  type_into "Mobile number" "9876543210"
+  type_into "House / flat, street" "12%sMG%sRoad"
+  type_into "City" "Pune"
+  type_into "PIN code" "411001"
+  type_into "State" "Maharashtra"
+  shot 20-checkout
+  tap_text "Pay securely";              shot 21-payment-sheet 4
+  tap_text "Pay ₹*";                    shot 22-order-placed 8
+fi
 
 if ! timeout 10 adb shell pidof "$PKG" >/dev/null; then
   echo "::error::App process is not running at the end of the smoke test"
