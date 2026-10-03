@@ -74,7 +74,7 @@ fun ShopTab(onSearch: () -> Unit, onMessage: (String) -> Unit, viewModel: ShopVi
     val actions = LocalAppActions.current
     var showSort by rememberSaveable { mutableStateOf(false) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(viewModel) { viewModel.messages.collect(onMessage) }
+    LaunchedEffect(viewModel) { viewModel.messages.collect { onMessage(it) } }
 
     val browsing = state.filter.category == null
     LazyVerticalGrid(
