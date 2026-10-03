@@ -18,7 +18,7 @@ import com.onefera.app.data.model.toSummary
  */
 internal object DemoSeed {
     const val CREATOR_PASSWORD = "creator-demo-only"
-    const val VERSION = 1
+    const val VERSION = 2
 
     private const val HOUR = 60 * 60 * 1000L
     private const val VIDEO_BASE = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample"
@@ -28,7 +28,8 @@ internal object DemoSeed {
     private fun video(name: String) = PostMedia(
         url = "$VIDEO_BASE/$name.mp4",
         type = MediaType.Video,
-        thumbnailUrl = "$VIDEO_BASE/images/$name.jpg",
+        // Poster from picsum so reels look right even before the video has buffered.
+        thumbnailUrl = "https://picsum.photos/seed/onefera-reel-$name/1080/1920",
         aspectRatio = 16f / 9f,
     )
 
