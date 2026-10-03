@@ -13,9 +13,7 @@ import com.onefera.app.data.model.AppNotification
 import com.onefera.app.data.model.FollowState
 import com.onefera.app.data.model.NotificationType
 import com.onefera.app.data.model.StoryGroup
-import com.onefera.app.data.model.UserProfile
 import com.onefera.app.data.model.UserSummary
-import com.onefera.app.data.model.toSummary
 import com.onefera.app.data.social.NotificationRepository
 import com.onefera.app.data.social.SocialRepository
 import com.onefera.app.data.social.StoryRepository
@@ -130,7 +128,7 @@ class FirestoreSocialRepository @Inject constructor(private val auth: AuthReposi
         if (uid == null) flowOf(emptySet()) else db.user(uid).collection("following").snapshotFlow().map { s -> s.documents.map { it.id }.toSet() }
     }
 
-    override suspend fun follow(target: UserProfile): Result<FollowState> = runFriendly {
+    override suspend fun follow(target: UserSummary): Result<FollowState> = runFriendly {
         val uid = auth.currentUid()
         val me = db.summaryOf(uid)
         if (target.isPrivate) {
@@ -139,7 +137,7 @@ class FirestoreSocialRepository @Inject constructor(private val auth: AuthReposi
             FollowState.Requested
         } else {
             db.runBatch { b ->
-                b.set(db.user(uid).collection("following").document(target.uid), target.toSummary().toMap() + ("createdAt" to FieldValue.serverTimestamp()))
+                b.set(db.user(uid).collection("following").document(target.uid), target.toMap() + ("createdAt" to FieldValue.serverTimestamp()))
                 b.set(db.user(target.uid).collection("followers").document(uid), me.toMap() + ("createdAt" to FieldValue.serverTimestamp()))
             }.await()
             FollowState.Following

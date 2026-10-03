@@ -24,6 +24,7 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.Default,
     val onboardingSeen: Boolean = false,
     val pushEnabled: Boolean = true,
+    val recentSearches: List<String> = emptyList(),
 )
 
 @Singleton
@@ -36,6 +37,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
                 themeMode = ThemeMode.fromName(prefs[Keys.THEME_MODE]),
                 onboardingSeen = prefs[Keys.ONBOARDING_SEEN] ?: false,
                 pushEnabled = prefs[Keys.PUSH_ENABLED] ?: true,
+                recentSearches = prefs[Keys.RECENT_SEARCHES]?.split(SEPARATOR)?.filter { it.isNotBlank() }.orEmpty(),
             )
         }
         .distinctUntilChanged()
@@ -48,10 +50,30 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
 
     suspend fun setPushEnabled(enabled: Boolean) = context.settingsStore.edit { it[Keys.PUSH_ENABLED] = enabled }
 
+    /** Remembers a search term (most recent first, max 12). */
+    suspend fun addRecentSearch(term: String) = context.settingsStore.edit { prefs ->
+        val clean = term.trim().replace(SEPARATOR, "")
+        if (clean.isEmpty()) return@edit
+        val current = prefs[Keys.RECENT_SEARCHES]?.split(SEPARATOR).orEmpty().filter { it.isNotBlank() }
+        prefs[Keys.RECENT_SEARCHES] = (listOf(clean) + current.filterNot { it.equals(clean, ignoreCase = true) }).take(12).joinToString(SEPARATOR)
+    }
+
+    suspend fun removeRecentSearch(term: String) = context.settingsStore.edit { prefs ->
+        val current = prefs[Keys.RECENT_SEARCHES]?.split(SEPARATOR).orEmpty()
+        prefs[Keys.RECENT_SEARCHES] = current.filterNot { it == term }.joinToString(SEPARATOR)
+    }
+
+    suspend fun clearRecentSearches() = context.settingsStore.edit { it.remove(Keys.RECENT_SEARCHES) }
+
+    private companion object {
+        const val SEPARATOR = "\u001F"
+    }
+
     private object Keys {
         val SKIN = stringPreferencesKey("skin")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val ONBOARDING_SEEN = booleanPreferencesKey("onboarding_seen")
         val PUSH_ENABLED = booleanPreferencesKey("push_enabled")
+        val RECENT_SEARCHES = stringPreferencesKey("recent_searches")
     }
 }

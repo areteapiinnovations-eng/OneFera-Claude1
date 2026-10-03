@@ -19,7 +19,6 @@ import com.onefera.app.data.model.PostVisibility
 import com.onefera.app.data.model.Story
 import com.onefera.app.data.model.StoryGroup
 import com.onefera.app.data.model.TagSummary
-import com.onefera.app.data.model.UserProfile
 import com.onefera.app.data.model.UserSummary
 import com.onefera.app.data.model.extractHashtags
 import com.onefera.app.data.model.toSummary
@@ -157,13 +156,16 @@ class DemoPostRepository @Inject constructor(
     override suspend fun searchTags(prefix: String): List<TagSummary> {
         val p = prefix.trim().removePrefix("#").lowercase()
         if (p.isEmpty()) return emptyList()
-        return social.snapshot().posts.filter { it.visibility == PostVisibility.PUBLIC }
-            .flatMap { it.tags }.filter { it.startsWith(p) }
-            .groupingBy { it }.eachCount()
-            .map { (tag, count) -> TagSummary(tag, count) }
-            .sortedByDescending { it.postCount }.take(20)
+        return tagCounts(social.snapshot().posts).filter { it.tag.startsWith(p) }.take(20)
     }
+
+    override suspend fun trendingTags(): List<TagSummary> = tagCounts(social.snapshot().posts).take(12)
 }
+
+private fun tagCounts(posts: List<Post>): List<TagSummary> =
+    posts.filter { it.visibility == PostVisibility.PUBLIC }.flatMap { it.tags }
+        .groupingBy { it }.eachCount().map { (tag, count) -> TagSummary(tag, count) }
+        .sortedByDescending { it.postCount }
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
@@ -229,10 +231,12 @@ class DemoSocialRepository @Inject constructor(
         social.select { s -> s.follows.filter { it.startsWith("$uid>") }.map { it.substringAfter('>') }.toSet() }
     }
 
-    override suspend fun follow(target: UserProfile): Result<FollowState> = runCatching {
+    override suspend fun follow(target: UserSummary): Result<FollowState> = runCatching {
         val me = accounts.summary(auth.demoUid())
-        social.follow(me, target.toSummary(), target.isPrivate)
-        if (target.isPrivate) FollowState.Requested else FollowState.Following
+        // Use the stored profile so the privacy flag is current.
+        val isPrivate = accounts.profileNow(target.uid)?.isPrivate ?: target.isPrivate
+        social.follow(me, target, isPrivate)
+        if (isPrivate) FollowState.Requested else FollowState.Following
     }
 
     override suspend fun unfollow(targetUid: String): Result<Unit> = runCatching { social.unfollow(auth.demoUid(), targetUid) }

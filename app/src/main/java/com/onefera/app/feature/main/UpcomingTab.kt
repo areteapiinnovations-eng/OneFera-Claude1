@@ -33,11 +33,6 @@ private fun upcomingFor(tab: MainTab): Upcoming = when (tab) {
         "Drops, deals and creator stores, all one tap from your feed.",
         listOf("Categories & Drop of the Day", "Search, filters and sort", "Product pages, wishlist & cart", "Secure checkout & order tracking"),
     )
-    MainTab.Search -> Upcoming(
-        "Find anything, anyone 🔎",
-        "Search people, products and tags in one place.",
-        listOf("Top, Accounts, Shop and Tags tabs", "Recent searches", "Trending hashtags"),
-    )
     MainTab.Chats -> Upcoming(
         "DMs are loading 💬",
         "Real-time chats with your circle and your favourite sellers.",
@@ -47,11 +42,6 @@ private fun upcomingFor(tab: MainTab): Upcoming = when (tab) {
         "What's around you 📍",
         "Discover creators and sellers nearby, only if you choose to share your location.",
         listOf("Nearby people", "Nearby stores & pickups", "Distance filters, privacy first"),
-    )
-    MainTab.Reels -> Upcoming(
-        "Reels are rolling in 🎬",
-        "Full-screen vertical video with sounds, reactions and tap-to-buy.",
-        listOf("Swipe-up vertical player", "Trending sounds", "Duets & reactions", "Tap-to-buy product tags"),
     )
     else -> Upcoming("Coming soon ✨", "This space is getting built right now.", emptyList())
 }

@@ -5,14 +5,27 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.onefera.app.core.navigation.AppActions
+import com.onefera.app.core.navigation.LocalAppActions
 import com.onefera.app.feature.auth.ForgotPasswordScreen
+import com.onefera.app.feature.create.CreatePostScreen
+import com.onefera.app.feature.notifications.NotificationsScreen
+import com.onefera.app.feature.post.PostDetailScreen
+import com.onefera.app.feature.search.TagScreen
+import com.onefera.app.feature.story.StoryViewerScreen
+import com.onefera.app.feature.user.FollowListScreen
+import com.onefera.app.feature.user.UserProfileScreen
 import com.onefera.app.feature.auth.SignInScreen
 import com.onefera.app.feature.auth.SignUpScreen
 import com.onefera.app.feature.main.MainScreen
@@ -37,6 +50,20 @@ fun OneFeraNavHost(
         }
     }
 
+    val appActions = remember(navController) {
+        AppActions(
+            openUser = { navController.navigate(UserProfileRoute(it)) },
+            openPost = { navController.navigate(PostDetailRoute(it)) },
+            openTag = { navController.navigate(TagRoute(it)) },
+            openStories = { navController.navigate(StoryViewerRoute(it)) },
+            openFollowList = { uid, followers -> navController.navigate(FollowListRoute(uid, followers)) },
+            openNotifications = { navController.navigate(NotificationsRoute) { launchSingleTop = true } },
+            createPost = { reel -> navController.navigate(CreatePostRoute(reel)) },
+            back = { navController.popBackStack() },
+        )
+    }
+
+    CompositionLocalProvider(LocalAppActions provides appActions) {
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -84,6 +111,24 @@ fun OneFeraNavHost(
         composable<EditProfileRoute> {
             EditProfileScreen(onBack = { navController.popBackStack() })
         }
+        composable<CreatePostRoute>(
+            enterTransition = { slideInVertically(tween(320)) { it / 3 } + fadeIn(tween(320)) },
+            popExitTransition = { slideOutVertically(tween(280)) { it / 3 } + fadeOut(tween(280)) },
+        ) {
+            CreatePostScreen(onBack = { navController.popBackStack() }, onPublished = { navController.popBackStack() })
+        }
+        composable<StoryViewerRoute>(
+            enterTransition = { fadeIn(tween(200)) },
+            popExitTransition = { fadeOut(tween(200)) },
+        ) {
+            StoryViewerScreen(onClose = { navController.popBackStack() })
+        }
+        composable<UserProfileRoute> { UserProfileScreen(onBack = { navController.popBackStack() }) }
+        composable<FollowListRoute> { FollowListScreen(onBack = { navController.popBackStack() }) }
+        composable<PostDetailRoute> { PostDetailScreen(onBack = { navController.popBackStack() }) }
+        composable<TagRoute> { TagScreen(onBack = { navController.popBackStack() }) }
+        composable<NotificationsRoute> { NotificationsScreen(onBack = { navController.popBackStack() }) }
+    }
     }
 }
 

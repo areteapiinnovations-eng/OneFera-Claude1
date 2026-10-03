@@ -63,7 +63,9 @@ want = sys.argv[1]
 for m in re.finditer(r'<node [^>]*>', xml):
     n = m.group(0)
     t = re.search(r' text="([^"]*)"', n); d = re.search(r'content-desc="([^"]*)"', n)
-    if (t and t.group(1) == want) or (d and d.group(1) == want):
+    def match(v):
+        return v.startswith(want[:-1]) if want.endswith('*') else v == want
+    if (t and match(t.group(1))) or (d and match(d.group(1))):
         b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', n)
         if b:
             x1, y1, x2, y2 = map(int, b.groups()); print((x1 + x2) // 2, (y1 + y2) // 2); break
@@ -84,13 +86,21 @@ tap_text "Next";                      shot 02-onboarding-shop
 tap_text "Next";                      shot 03-onboarding-sell
 tap_text "I already have an account"; shot 04-sign-in
 tap_text "Fill demo login";           sleep 1
-tap_text "Log in";                    shot 05-home 6
-tap_text "You";                       shot 06-profile
-tap_text "Profile menu";              shot 07-profile-menu
-tap_text "Settings";                  shot 08-settings
-tap_text "Sunset Pop";                shot 09-settings-sunset-pop
-timeout 10 adb shell input keyevent KEYCODE_BACK; shot 10-profile-sunset-pop
-tap_text "Shop";                      shot 11-shop-upcoming
+tap_text "Log in";                    shot 05-feed 8
+timeout 10 adb shell input swipe 540 1700 540 700 400; shot 06-feed-scrolled 4
+tap_text "Comments*";                 shot 07-comments 4
+timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 1
+tap_text "Reels";                     shot 08-reels 8
+tap_text "Search";                    shot 09-search 4
+tap_text "Home";                      sleep 2
+tap_text "Notifications*";            shot 10-notifications 4
+timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 1
+tap_text "You";                       shot 11-profile
+tap_text "Profile menu";              shot 12-profile-menu
+tap_text "Settings";                  shot 13-settings
+tap_text "Sunset Pop";                shot 14-settings-sunset-pop
+timeout 10 adb shell input keyevent KEYCODE_BACK; shot 15-profile-sunset-pop
+tap_text "Shop";                      shot 16-shop-upcoming
 
 if ! timeout 10 adb shell pidof "$PKG" >/dev/null; then
   echo "::error::App process is not running at the end of the smoke test"

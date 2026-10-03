@@ -45,6 +45,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.onefera.app.R
 import com.onefera.app.core.common.AppLinks
+import com.onefera.app.core.common.compactCount
 import com.onefera.app.core.designsystem.component.Avatar
 import com.onefera.app.core.designsystem.component.CircleIconButton
 import com.onefera.app.core.designsystem.component.EmptyState
@@ -58,7 +59,11 @@ import com.onefera.app.data.model.AccountMode
 import com.onefera.app.data.model.AuraGrade
 import com.onefera.app.data.model.UserProfile
 import com.onefera.app.feature.main.MainUiState
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.onefera.app.core.navigation.LocalAppActions
 import com.onefera.app.feature.main.ProgressBar
+import com.onefera.app.feature.post.postGridItems
 import kotlinx.coroutines.launch
 
 private enum class ProfileSection(@DrawableRes val icon: Int, val label: String) {
@@ -133,8 +138,11 @@ private fun ProfileContent(
     onMenu: () -> Unit,
     onEditProfile: () -> Unit,
     onShare: () -> Unit,
+    contentViewModel: MyContentViewModel = hiltViewModel(),
 ) {
     val extras = OneFeraTheme.extras
+    val actions = LocalAppActions.current
+    val content by contentViewModel.content.collectAsStateWithLifecycle()
     var section by rememberSaveable { mutableStateOf(ProfileSection.Posts) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -173,8 +181,8 @@ private fun ProfileContent(
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth()) {
                     Stat("Posts", profile.postsCount, Modifier.weight(1f))
-                    Stat("Followers", profile.followersCount, Modifier.weight(1f))
-                    Stat("Following", profile.followingCount, Modifier.weight(1f))
+                    Stat("Followers", profile.followersCount, Modifier.weight(1f)) { actions.openFollowList(profile.uid, true) }
+                    Stat("Following", profile.followingCount, Modifier.weight(1f)) { actions.openFollowList(profile.uid, false) }
                     Stat("Views", profile.profileViews, Modifier.weight(1f))
                 }
                 if (profile.bio.isNotBlank() || profile.vibe.isNotBlank()) Spacer(Modifier.height(14.dp))
@@ -216,30 +224,52 @@ private fun ProfileContent(
                 }
             }
         }
-        item {
-            EmptyState(
-                icon = section.icon,
-                title = when (section) {
-                    ProfileSection.Posts -> "No posts yet"
-                    ProfileSection.Reels -> "No reels yet"
-                    ProfileSection.Saved -> "Nothing saved yet"
-                },
-                message = when (section) {
-                    ProfileSection.Posts -> "Your first drop is one tap away once posting goes live."
-                    ProfileSection.Reels -> "Reels you post will show up here."
-                    ProfileSection.Saved -> "Bookmark posts and products to find them later."
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
+        val shown = when (section) {
+            ProfileSection.Posts -> content.posts
+            ProfileSection.Reels -> content.reels
+            ProfileSection.Saved -> content.saved
+        }
+        val emptyAction: (@Composable () -> Unit)? = when (section) {
+            ProfileSection.Posts -> {
+                { GlassButton(text = "Create a post", onClick = { actions.createPost(false) }) }
+            }
+            ProfileSection.Reels -> {
+                { GlassButton(text = "Create a reel", onClick = { actions.createPost(true) }) }
+            }
+            ProfileSection.Saved -> null
+        }
+        if (!content.loading && shown.isEmpty()) {
+            item {
+                EmptyState(
+                    icon = section.icon,
+                    title = when (section) {
+                        ProfileSection.Posts -> "No posts yet"
+                        ProfileSection.Reels -> "No reels yet"
+                        ProfileSection.Saved -> "Nothing saved yet"
+                    },
+                    message = when (section) {
+                        ProfileSection.Posts -> "Your first drop is one tap away ✨"
+                        ProfileSection.Reels -> "Post a vertical video and share it as a reel 🎬"
+                        ProfileSection.Saved -> "Tap the bookmark on any post to keep it here."
+                    },
+                    action = emptyAction,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        } else {
+            postGridItems(shown, onOpen = { actions.openPost(it.id) }, keyPrefix = section.name)
         }
     }
 }
 
 @Composable
-private fun Stat(label: String, value: Int, modifier: Modifier = Modifier) {
+private fun Stat(label: String, value: Int, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val extras = OneFeraTheme.extras
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(formatCount(value), style = MaterialTheme.typography.titleLarge, modifier = Modifier.gradientTint(extras.horizontalGradient()))
+    Column(
+        modifier.clip(RoundedCornerShape(12.dp)).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(compactCount(value), style = MaterialTheme.typography.titleLarge, modifier = Modifier.gradientTint(extras.horizontalGradient()))
         Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = extras.muted)
     }
 }
@@ -344,16 +374,3 @@ private fun shareProfile(context: Context, profile: UserProfile) {
     }
     context.startActivity(Intent.createChooser(intent, "Share your profile"))
 }
-
-/** 1234 → "1.2K", 2_500_000 → "2.5M". */
-internal fun formatCount(value: Int): String = when {
-    value >= 1_000_000 -> trimDecimal(value / 1_000_000.0) + "M"
-    value >= 1_000 -> trimDecimal(value / 1_000.0) + "K"
-    else -> value.toString()
-}
-
-private fun trimDecimal(v: Double): String {
-    val rounded = (v * 10).toInt() / 10.0
-    return if (rounded % 1.0 == 0.0) rounded.toInt().toString() else rounded.toString()
-}
-

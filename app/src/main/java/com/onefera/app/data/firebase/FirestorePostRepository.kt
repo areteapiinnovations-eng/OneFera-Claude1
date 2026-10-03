@@ -229,6 +229,11 @@ class FirestorePostRepository @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
+    override suspend fun trendingTags(): List<TagSummary> = runCatching {
+        db.collection("tags").orderBy("postCount", Query.Direction.DESCENDING).limit(12).get().await()
+            .documents.map { TagSummary(it.id, it.getLong("postCount")?.toInt() ?: 0) }
+    }.getOrDefault(emptyList())
+
     private suspend fun currentUserSummary(uid: String): UserSummary {
         val doc = db.collection("users").document(uid).get().await()
         if (!doc.exists()) throw UserFacingException("Finish setting up your profile first.")

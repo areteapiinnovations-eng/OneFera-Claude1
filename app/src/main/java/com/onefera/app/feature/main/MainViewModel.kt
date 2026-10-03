@@ -7,10 +7,14 @@ import com.onefera.app.data.auth.SessionState
 import com.onefera.app.data.backend.BackendConfig
 import com.onefera.app.data.model.AccountMode
 import com.onefera.app.data.model.UserProfile
+import com.onefera.app.data.social.NotificationRepository
+import com.onefera.app.data.social.StoryRepository
 import com.onefera.app.data.user.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,8 +37,29 @@ data class MainUiState(
 class MainViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val users: UserRepository,
+    private val stories: StoryRepository,
+    notifications: NotificationRepository,
     backendConfig: BackendConfig,
 ) : ViewModel() {
+
+    /** Unread notifications, for the bell badge. */
+    val unreadCount: StateFlow<Int> = notifications.unreadCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    private val _storyUpload = MutableStateFlow<Float?>(null)
+    /** Upload progress (0..1) while a story is being posted, otherwise null. */
+    val storyUpload: StateFlow<Float?> = _storyUpload.asStateFlow()
+
+    fun addStory(image: android.net.Uri) {
+        if (_storyUpload.value != null) return
+        _storyUpload.value = 0f
+        viewModelScope.launch {
+            stories.addStory(image) { _storyUpload.value = it }
+                .onSuccess { _messages.emit("Story posted ✨ it disappears in 24 h") }
+                .onFailure { _messages.emit(it.message ?: "Couldn't post your story") }
+            _storyUpload.value = null
+        }
+    }
 
     val isDemoMode = backendConfig.isDemoMode
 

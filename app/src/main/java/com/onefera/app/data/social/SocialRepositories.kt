@@ -8,7 +8,6 @@ import com.onefera.app.data.model.Post
 import com.onefera.app.data.model.PostDraft
 import com.onefera.app.data.model.StoryGroup
 import com.onefera.app.data.model.TagSummary
-import com.onefera.app.data.model.UserProfile
 import com.onefera.app.data.model.UserSummary
 import kotlinx.coroutines.flow.Flow
 
@@ -36,6 +35,7 @@ interface PostRepository {
     suspend fun addComment(post: Post, text: String): Result<Unit>
 
     suspend fun searchTags(prefix: String): List<TagSummary>
+    suspend fun trendingTags(): List<TagSummary>
 }
 
 interface StoryRepository {
@@ -50,7 +50,7 @@ interface SocialRepository {
     fun followingIds(): Flow<Set<String>>
 
     /** Follows a public account, or sends a request to a private one. */
-    suspend fun follow(target: UserProfile): Result<FollowState>
+    suspend fun follow(target: UserSummary): Result<FollowState>
     suspend fun unfollow(targetUid: String): Result<Unit>
     suspend fun cancelRequest(targetUid: String): Result<Unit>
     suspend fun respondToRequest(requesterUid: String, accept: Boolean): Result<Unit>

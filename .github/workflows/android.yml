@@ -58,6 +58,33 @@ jobs:
           path: app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
 
+  firebase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build Cloud Functions
+        working-directory: firebase/functions
+        run: |
+          npm ci
+          npm run build
+
+      - name: Security-rules tests (Firestore emulator)
+        working-directory: firebase/rules-tests
+        run: |
+          npm ci
+          npm test
+
   smoke-test:
     needs: build
     runs-on: ubuntu-latest
