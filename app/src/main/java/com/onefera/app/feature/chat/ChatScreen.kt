@@ -84,6 +84,9 @@ import com.onefera.app.R
 import com.onefera.app.core.designsystem.component.AuroraBackground
 import com.onefera.app.core.designsystem.component.Avatar
 import com.onefera.app.core.designsystem.component.CircleIconButton
+import com.onefera.app.feature.moderation.BlockDialog
+import com.onefera.app.feature.moderation.ReportDialog
+import com.onefera.app.data.moderation.ReportTarget
 import com.onefera.app.core.designsystem.component.OneFeraTextField
 import com.onefera.app.core.designsystem.component.SelectChip
 import com.onefera.app.core.designsystem.component.gradientTint

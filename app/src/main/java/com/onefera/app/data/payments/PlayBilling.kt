@@ -130,7 +130,7 @@ class PlayBilling @Inject constructor(
             .await()
         if (!purchase.isAcknowledged) {
             val params = AcknowledgePurchaseParams.newBuilder().setPurchaseToken(purchase.purchaseToken).build()
-            suspendCancellableCoroutine { cont -> client.acknowledgePurchase(params) { if (cont.isActive) cont.resume(Unit) } }
+            suspendCancellableCoroutine<Unit> { cont -> client.acknowledgePurchase(params) { if (cont.isActive) cont.resume(Unit) } }
         }
     }
 
