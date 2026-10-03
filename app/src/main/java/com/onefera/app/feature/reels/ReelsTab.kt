@@ -64,6 +64,7 @@ import com.onefera.app.core.designsystem.component.EmptyState
 import com.onefera.app.core.designsystem.component.GradientButton
 import com.onefera.app.core.designsystem.theme.StatusColors
 import com.onefera.app.core.media.VideoSurface
+import com.onefera.app.core.media.rememberFirstFrameRendered
 import com.onefera.app.core.media.rememberVideoPlayer
 import com.onefera.app.core.navigation.LocalAppActions
 import com.onefera.app.data.auth.AuthRepository
@@ -237,7 +238,14 @@ private fun ReelPage(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        if (isCurrent) VideoSurface(player, Modifier.fillMaxSize())
+        if (isCurrent) {
+            val showVideo = rememberFirstFrameRendered(player, post.id)
+            // The poster is drawn over the video surface until the first frame has rendered.
+            VideoSurface(player, Modifier.fillMaxSize())
+            if (!showVideo) {
+                AsyncImage(model = post.cover?.thumbnailUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            }
+        }
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.75f)),

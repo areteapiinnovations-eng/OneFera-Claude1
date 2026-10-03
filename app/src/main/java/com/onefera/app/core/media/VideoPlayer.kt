@@ -5,7 +5,10 @@ import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -97,4 +100,23 @@ fun VideoSurface(player: Player, modifier: Modifier = Modifier, fill: Boolean = 
         },
         update = { it.player = player },
     )
+}
+
+/**
+ * True once [player] has drawn the first frame of the current media item. Until then callers keep
+ * showing the poster image, because the video surface is opaque black before frames arrive.
+ */
+@Composable
+fun rememberFirstFrameRendered(player: Player, mediaKey: Any?): Boolean {
+    var rendered by remember(mediaKey) { mutableStateOf(false) }
+    DisposableEffect(player, mediaKey) {
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                rendered = true
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+    return rendered
 }

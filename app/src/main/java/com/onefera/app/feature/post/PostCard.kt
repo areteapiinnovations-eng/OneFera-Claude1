@@ -66,6 +66,7 @@ import com.onefera.app.core.designsystem.component.gradientTint
 import com.onefera.app.core.designsystem.theme.OneFeraTheme
 import com.onefera.app.core.designsystem.theme.StatusColors
 import com.onefera.app.core.media.VideoSurface
+import com.onefera.app.core.media.rememberFirstFrameRendered
 import com.onefera.app.core.navigation.LocalAppActions
 import com.onefera.app.data.model.MediaType
 import com.onefera.app.data.model.Post
@@ -244,7 +245,9 @@ private fun PostMediaView(post: Post, activePlayer: Player?, onDoubleTap: () -> 
         } else {
             val media = post.media.first()
             if (media.type == MediaType.Video && activePlayer != null) {
+                val showVideo = rememberFirstFrameRendered(activePlayer, post.id)
                 VideoSurface(activePlayer, Modifier.fillMaxSize())
+                if (!showVideo) MediaImage(media)
             } else {
                 MediaImage(media)
                 if (media.type == MediaType.Video) {
