@@ -1,0 +1,59 @@
+name: Android CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe latest dependency versions
+        run: ./tools/probe-versions.sh
+
+      - name: Set up JDK 17
+        if: hashFiles('gradlew') != ''
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        if: hashFiles('gradlew') != ''
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK, release AAB, unit tests and lint
+        if: hashFiles('gradlew') != ''
+        run: ./gradlew --stacktrace assembleDebug bundleRelease testDebugUnitTest lintDebug
+
+      - name: Upload debug APK
+        if: hashFiles('gradlew') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: onefera-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload release AAB (unsigned unless signing secrets are configured)
+        if: hashFiles('gradlew') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: onefera-release-aab
+          path: app/build/outputs/bundle/release/*.aab
+
+      - name: Upload lint report
+        if: always() && hashFiles('gradlew') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
