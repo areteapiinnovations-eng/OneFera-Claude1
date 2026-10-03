@@ -3,7 +3,6 @@ package com.onefera.app.feature.profile
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalLayoutApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,7 +48,6 @@ import com.onefera.app.core.designsystem.theme.OneFeraTheme
 import com.onefera.app.data.model.ProfileVibes
 import com.onefera.app.feature.auth.FormError
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EditProfileScreen(onBack: () -> Unit, viewModel: EditProfileViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
