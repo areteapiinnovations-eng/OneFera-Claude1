@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import javax.inject.Inject
 
 data class SettingsUiState(
@@ -45,6 +48,25 @@ class SettingsViewModel @Inject constructor(
     fun setSkin(skin: ThemeSkin) = viewModelScope.launch { settingsRepository.setSkin(skin) }
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { settingsRepository.setThemeMode(mode) }
     fun setPush(enabled: Boolean) = viewModelScope.launch { settingsRepository.setPushEnabled(enabled) }
+
+    var deleting by mutableStateOf(false)
+        private set
+    var deleteError by mutableStateOf<String?>(null)
+        private set
+
+    fun deleteAccount(password: String) {
+        if (deleting) return
+        deleting = true
+        deleteError = null
+        viewModelScope.launch {
+            auth.deleteAccount(password).onFailure { deleteError = it.message ?: "Couldn't delete your account." }
+            deleting = false
+        }
+    }
+
+    fun clearDeleteError() {
+        deleteError = null
+    }
 
     fun setPrivate(isPrivate: Boolean) {
         val session = auth.session.value as? SessionState.SignedIn ?: return

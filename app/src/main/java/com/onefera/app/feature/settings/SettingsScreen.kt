@@ -27,6 +27,9 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +42,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onefera.app.BuildConfig
 import com.onefera.app.R
+import com.onefera.app.core.navigation.LocalAppActions
 import com.onefera.app.core.common.AppLinks
 import com.onefera.app.core.designsystem.component.AuroraBackground
 import com.onefera.app.core.designsystem.component.GradientTag
@@ -55,6 +59,18 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
     val extras = OneFeraTheme.extras
     val context = LocalContext.current
     fun open(url: String) = context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    if (confirmDelete) {
+        DeleteAccountDialog(
+            busy = viewModel.deleting,
+            error = viewModel.deleteError,
+            onConfirm = viewModel::deleteAccount,
+            onDismiss = {
+                confirmDelete = false
+                viewModel.clearDeleteError()
+            },
+        )
+    }
 
     AuroraBackground(Modifier.fillMaxSize(), intensity = 0.45f) {
         Column(Modifier.fillMaxSize()) {
@@ -97,6 +113,23 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                     )
                 }
                 item { InfoRow(icon = R.drawable.ic_language, title = "Language", subtitle = "English (India) · more languages soon") }
+                item { SectionLabel("ACCOUNT") }
+                item {
+                    InfoRow(
+                        icon = R.drawable.ic_shield,
+                        title = "Blocked accounts",
+                        subtitle = "People you've blocked",
+                        onClick = LocalAppActions.current.openBlockedAccounts,
+                    )
+                }
+                item {
+                    InfoRow(
+                        icon = R.drawable.ic_delete,
+                        title = "Delete account",
+                        subtitle = "Permanently remove your profile, posts and data",
+                        onClick = { confirmDelete = true },
+                    )
+                }
                 item { SectionLabel("ABOUT") }
                 item { InfoRow(icon = R.drawable.ic_info, title = "Community guidelines", onClick = { open(AppLinks.GUIDELINES) }) }
                 item { InfoRow(icon = R.drawable.ic_shield, title = "Privacy policy", onClick = { open(AppLinks.PRIVACY) }) }
@@ -208,4 +241,30 @@ private fun RowIcon(@DrawableRes icon: Int) {
         modifier = Modifier.size(22.dp).gradientTint(OneFeraTheme.extras.gradientBrush()),
     )
     Spacer(Modifier.width(14.dp))
+}
+
+@Composable
+private fun DeleteAccountDialog(busy: Boolean, error: String?, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    var password by rememberSaveable { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Delete your account?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("This permanently deletes your profile, posts, reels, stories, listings, cart, coupons and Aura. It can't be undone. Orders are kept anonymised for tax and refund records.")
+                com.onefera.app.core.designsystem.component.PasswordTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = "Confirm your password",
+                    error = error,
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { onConfirm(password) }, enabled = password.isNotEmpty() && !busy) {
+                Text(if (busy) "Deleting…" else "Delete forever", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss, enabled = !busy) { Text("Keep my account") } },
+    )
 }

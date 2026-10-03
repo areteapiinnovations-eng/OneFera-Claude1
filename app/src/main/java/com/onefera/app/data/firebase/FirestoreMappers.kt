@@ -101,6 +101,7 @@ internal fun DocumentSnapshot.toPost(): Post = Post(
     createdAt = millis("createdAt"),
     visibility = getString("visibility") ?: PostVisibility.PUBLIC,
     products = (get("products") as? List<*>)?.mapNotNull { (it as? Map<*, *>)?.toProductSummary() }.orEmpty(),
+    hidden = getBoolean("hidden") ?: false,
 )
 
 internal fun DocumentSnapshot.toComment(postId: String): Comment = Comment(

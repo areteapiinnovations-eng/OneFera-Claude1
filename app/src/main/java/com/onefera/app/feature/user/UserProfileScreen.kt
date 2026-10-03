@@ -76,6 +76,12 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.onefera.app.feature.moderation.BlockDialog
+import com.onefera.app.feature.moderation.ReportDialog
+import com.onefera.app.data.moderation.ReportTarget
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import com.onefera.app.core.designsystem.component.CircleIconButton
 import javax.inject.Inject
 
 data class UserProfileUiState(
@@ -139,8 +145,31 @@ fun UserProfileScreen(onBack: () -> Unit, viewModel: UserProfileViewModel = hilt
 
     AuroraBackground(Modifier.fillMaxSize(), intensity = 0.5f) {
         Column(Modifier.fillMaxSize()) {
-            ScreenHeader(title = state.profile?.username?.let { "@$it" } ?: "", onBack = onBack)
             val profile = state.profile
+            var safetyMenu by remember { mutableStateOf(false) }
+            var reporting by remember { mutableStateOf(false) }
+            var blocking by remember { mutableStateOf(false) }
+            val isMe = state.followState == FollowState.Self
+            ScreenHeader(
+                title = profile?.username?.let { "@$it" } ?: "",
+                onBack = onBack,
+                actions = {
+                    if (profile != null && !isMe) {
+                        Box {
+                            CircleIconButton(icon = R.drawable.ic_more, contentDescription = "More options", onClick = { safetyMenu = true }, size = 38.dp)
+                            DropdownMenu(expanded = safetyMenu, onDismissRequest = { safetyMenu = false }) {
+                                DropdownMenuItem(text = { Text("Report account") }, onClick = { safetyMenu = false; reporting = true })
+                                DropdownMenuItem(
+                                    text = { Text("Block @${profile.username}", color = MaterialTheme.colorScheme.error) },
+                                    onClick = { safetyMenu = false; blocking = true },
+                                )
+                            }
+                        }
+                    }
+                },
+            )
+            if (profile != null && reporting) ReportDialog(ReportTarget.User, profile.uid, profile.uid, onDismiss = { reporting = false })
+            if (profile != null && blocking) BlockDialog(profile.toSummary(), onDismiss = { blocking = false; onBack() })
             when {
                 state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 profile == null -> EmptyState(R.drawable.ic_person, "Account not found", "It may have been removed.", Modifier.fillMaxWidth())

@@ -24,6 +24,12 @@ import com.onefera.app.data.social.PostRepository
 import com.onefera.app.data.social.SocialRepository
 import com.onefera.app.data.social.StoryRepository
 import com.onefera.app.data.shop.ShopRepository
+import com.onefera.app.data.moderation.ModerationRepository
+import com.onefera.app.data.firebase.FirestoreModerationRepository
+import com.onefera.app.data.demo.DemoModerationRepository
+import com.onefera.app.data.near.NearRepository
+import com.onefera.app.data.firebase.FirestoreNearRepository
+import com.onefera.app.data.demo.DemoNearRepository
 import com.onefera.app.data.rewards.RewardsRepository
 import com.onefera.app.data.firebase.FirestoreRewardsRepository
 import com.onefera.app.data.demo.DemoRewardsRepository
@@ -131,4 +137,20 @@ object AppModule {
         firestore: Provider<FirestoreRewardsRepository>,
         demo: Provider<DemoRewardsRepository>,
     ): RewardsRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    @Provides
+    @Singleton
+    fun provideNearRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestoreNearRepository>,
+        demo: Provider<DemoNearRepository>,
+    ): NearRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    @Provides
+    @Singleton
+    fun provideModerationRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestoreModerationRepository>,
+        demo: Provider<DemoModerationRepository>,
+    ): ModerationRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
 }

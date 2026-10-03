@@ -72,6 +72,12 @@ import com.onefera.app.data.shop.CheckoutSession
 import com.onefera.app.data.shop.PaymentResult
 import com.onefera.app.data.shop.ShopRepository
 import com.onefera.app.data.auth.AuthRepository
+import com.onefera.app.data.auth.SessionState
+import com.onefera.app.data.payments.RazorpayBridge
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.compose.ui.platform.LocalContext
 import com.onefera.app.data.firebase.uidFlow
 import com.onefera.app.data.model.Coupon
 import com.onefera.app.data.rewards.RewardsRepository
@@ -114,6 +120,8 @@ data class CheckoutUiState(
 sealed interface CheckoutEvent {
     data class Message(val text: String) : CheckoutEvent
     data class Placed(val orderId: String) : CheckoutEvent
+    /** Live payments: the screen hands the session to Razorpay Checkout (needs the Activity). */
+    data object PayLive : CheckoutEvent
 }
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -121,9 +129,11 @@ sealed interface CheckoutEvent {
 class CheckoutViewModel @Inject constructor(
     private val shop: ShopRepository,
     rewards: RewardsRepository,
-    auth: AuthRepository,
+    private val auth: AuthRepository,
     users: UserRepository,
+    private val razorpay: RazorpayBridge,
 ) : ViewModel() {
+    private var liveSession: CheckoutSession? = null
     private val form = MutableStateFlow(CheckoutForm())
     private val busy = MutableStateFlow(false)
     private val session = MutableStateFlow<CheckoutSession?>(null)
@@ -168,10 +178,8 @@ class CheckoutViewModel @Inject constructor(
                     if (f.method == PaymentMethod.Cod) {
                         confirm(s, PaymentResult("cod_" + UUID.randomUUID().toString().take(8)))
                     } else if (!s.simulated) {
-                        // Live Razorpay keys are configured on the backend, but this build only ships the
-                        // simulated checkout. The live SDK hand-off lands with release hardening.
-                        busy.value = false
-                        _events.send(CheckoutEvent.Message("Online payments are being upgraded. Please choose cash on delivery for now."))
+                        liveSession = s
+                        _events.send(CheckoutEvent.PayLive)
                     } else {
                         busy.value = false
                         session.value = s
@@ -180,6 +188,21 @@ class CheckoutViewModel @Inject constructor(
                 .onFailure {
                     busy.value = false
                     _events.send(CheckoutEvent.Message(it.message ?: "Checkout failed. Please try again."))
+                }
+        }
+    }
+
+    /** Opens Razorpay Checkout for the pending live session, then confirms the result server-side. */
+    fun payLive(activity: Activity) {
+        val s = liveSession ?: return
+        liveSession = null
+        val email = (auth.session.value as? SessionState.SignedIn)?.email
+        viewModelScope.launch {
+            razorpay.pay(activity, s, form.value.address, email)
+                .onSuccess { confirm(s, it) }
+                .onFailure {
+                    busy.value = false
+                    _events.send(CheckoutEvent.Message(it.message ?: "Payment didn't go through."))
                 }
         }
     }
@@ -208,6 +231,7 @@ class CheckoutViewModel @Inject constructor(
 @Composable
 fun CheckoutScreen(onBack: () -> Unit, onPlaced: (String) -> Unit, viewModel: CheckoutViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -217,6 +241,7 @@ fun CheckoutScreen(onBack: () -> Unit, onPlaced: (String) -> Unit, viewModel: Ch
                     snackbar.showSnackbar(event.text)
                 }
                 is CheckoutEvent.Placed -> onPlaced(event.orderId)
+                CheckoutEvent.PayLive -> context.findActivity()?.let(viewModel::payLive)
             }
         }
     }
@@ -390,6 +415,12 @@ private fun CouponPicker(state: CheckoutUiState, onToggle: (String) -> Unit) {
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 private val PaymentMethod.icon: Int

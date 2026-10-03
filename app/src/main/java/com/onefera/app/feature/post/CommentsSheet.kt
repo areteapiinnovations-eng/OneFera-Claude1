@@ -60,6 +60,13 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.onefera.app.data.moderation.ModerationRepository
+import com.onefera.app.feature.moderation.ReportDialog
+import com.onefera.app.data.moderation.ReportTarget
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import javax.inject.Inject
 
 data class CommentsUiState(
@@ -72,12 +79,12 @@ data class CommentsUiState(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
-class CommentsViewModel @Inject constructor(private val posts: PostRepository) : ViewModel() {
+class CommentsViewModel @Inject constructor(private val posts: PostRepository, moderation: ModerationRepository) : ViewModel() {
     private val post = MutableStateFlow<Post?>(null)
     private val form = MutableStateFlow(CommentsUiState())
 
     val state: StateFlow<CommentsUiState> = post.filterNotNull()
-        .flatMapLatest { p -> posts.comments(p.id) }
+        .flatMapLatest { p -> kotlinx.coroutines.flow.combine(posts.comments(p.id), moderation.blockedIds()) { list, hidden -> list.filter { it.author.uid !in hidden } } }
         .let { commentsFlow ->
             kotlinx.coroutines.flow.combine(commentsFlow, form) { list, f -> f.copy(loading = false, comments = list) }
         }
@@ -155,10 +162,18 @@ fun CommentList(comments: List<Comment>, onNavigate: () -> Unit = {}, modifier: 
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CommentRow(comment: Comment, onAuthor: () -> Unit) {
     val extras = OneFeraTheme.extras
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    var reporting by remember { mutableStateOf(false) }
+    if (reporting) ReportDialog(ReportTarget.Comment, "${comment.postId}/${comment.id}", comment.author.uid, onDismiss = { reporting = false })
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = {}, onLongClick = { reporting = true }, onLongClickLabel = "Report comment")
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
         Avatar(comment.author.avatarUrl, comment.author.displayName, size = 34.dp, modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onAuthor))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {

@@ -19,15 +19,20 @@ import com.onefera.app.data.push.DeepLinks
 import com.onefera.app.navigation.OneFeraNavHost
 import com.onefera.app.navigation.RootUiState
 import com.onefera.app.navigation.RootViewModel
+import com.onefera.app.data.payments.RazorpayBridge
+import com.razorpay.PaymentData
+import com.razorpay.PaymentResultWithDataListener
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
 
     private val rootViewModel: RootViewModel by viewModels()
 
     @Inject lateinit var deepLinks: DeepLinks
+
+    @Inject lateinit var razorpay: RazorpayBridge
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
@@ -57,6 +62,11 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    // Razorpay Checkout reports results to the hosting Activity.
+    override fun onPaymentSuccess(paymentId: String?, data: PaymentData?) = razorpay.onSuccess(paymentId, data)
+
+    override fun onPaymentError(code: Int, description: String?, data: PaymentData?) = razorpay.onError(code, description)
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

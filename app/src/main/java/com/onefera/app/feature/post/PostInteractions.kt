@@ -7,15 +7,17 @@ import com.onefera.app.data.model.Post
 import com.onefera.app.data.social.PostRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import javax.inject.Inject
 
 /** A post as shown to the signed-in user, with their like / save state. */
 data class FeedItem(val post: Post, val liked: Boolean, val saved: Boolean)
 
 /** Attaches the signed-in user's like / save state to a stream of posts. */
-fun Flow<List<Post>>.withInteractions(posts: PostRepository): Flow<List<FeedItem>> =
-    combine(this, posts.likedIds(), posts.savedIds()) { list, liked, saved ->
-        list.map { FeedItem(it, it.id in liked, it.id in saved) }
+/** Adds like/save state and hides posts from blocked accounts. */
+fun Flow<List<Post>>.withInteractions(posts: PostRepository, blocked: Flow<Set<String>> = flowOf(emptySet())): Flow<List<FeedItem>> =
+    combine(this, posts.likedIds(), posts.savedIds(), blocked) { list, liked, saved, hidden ->
+        list.filter { !it.hidden && it.authorId !in hidden }.map { FeedItem(it, it.id in liked, it.id in saved) }
     }
 
 /** Like / save / delete actions shared by every screen that shows posts. */

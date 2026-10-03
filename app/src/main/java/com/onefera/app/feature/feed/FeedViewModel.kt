@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.onefera.app.data.moderation.ModerationRepository
 import javax.inject.Inject
 
 data class FeedUiState(
@@ -48,17 +49,19 @@ class FeedViewModel @Inject constructor(
     private val actions: PostActions,
     seenStories: SeenStories,
     auth: AuthRepository,
+    moderation: ModerationRepository,
 ) : ViewModel() {
+    private val blocked = moderation.blockedIds()
 
     private val scope = MutableStateFlow(FeedScope.ForYou)
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages
 
-    private val items = scope.flatMapLatest { s -> posts.feed(s).withInteractions(posts).map { s to it } }
+    private val items = scope.flatMapLatest { s -> posts.feed(s).withInteractions(posts, blocked).map { s to it } }
 
     val state: StateFlow<FeedUiState> = combine(
         items,
-        stories.storyGroups(),
+        combine(stories.storyGroups(), blocked) { groups, hidden -> groups.filter { it.author.uid !in hidden } },
         seenStories.seen,
         social.suggestions(),
         auth.session.map { (it as? SessionState.SignedIn)?.uid },

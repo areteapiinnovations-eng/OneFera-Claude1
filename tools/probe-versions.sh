@@ -28,3 +28,4 @@ g com/google/android/libraries/identity/googleid googleid
 g com/google/android/gms play-services-location
 g androidx/paging paging-compose
 g androidx/camera camera-camera2
+g com/android/billingclient billing

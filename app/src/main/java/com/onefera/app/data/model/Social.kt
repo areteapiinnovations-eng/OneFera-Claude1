@@ -62,6 +62,8 @@ data class Post(
     val visibility: String = PostVisibility.PUBLIC,
     /** Products tagged on the post ("tap to buy"), at most [MAX_PRODUCT_TAGS]. */
     val products: List<ProductSummary> = emptyList(),
+    /** Set by moderation when several people report the post; hidden from feeds until reviewed. */
+    val hidden: Boolean = false,
 ) {
     val cover: PostMedia? get() = media.firstOrNull()
     val coverImageUrl: String? get() = cover?.let { it.thumbnailUrl ?: it.url.takeIf { _ -> it.type == MediaType.Image } }

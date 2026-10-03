@@ -23,4 +23,11 @@ interface AuthRepository {
 
     /** Removes the just-created account, used to roll back a sign-up whose profile failed to save. */
     suspend fun deleteCurrentAccount()
+
+    /**
+     * Permanently deletes the signed-in account and its data (profile, posts, stories, listings,
+     * cart, rewards…) after confirming the password, then signs out. Orders are kept, anonymised,
+     * for tax and refund records.
+     */
+    suspend fun deleteAccount(password: String): Result<Unit>
 }

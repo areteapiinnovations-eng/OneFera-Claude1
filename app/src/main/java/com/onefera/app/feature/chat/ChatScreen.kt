@@ -137,6 +137,9 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
 
     val conversation = state.conversation
     val other = conversation?.other(state.myUid)
+    var chatMenu by remember { mutableStateOf(false) }
+    var reportingChat by remember { mutableStateOf(false) }
+    var blockingChat by remember { mutableStateOf(false) }
     val otherTyping = other != null && conversation?.isTyping(other.uid, state.now) == true
     val status = when {
         otherTyping -> "typing…"
@@ -173,8 +176,19 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
                     }
                 }
                 IconButton(onClick = { viewModel.comingSoon("Voice") }) { Icon(painterResource(R.drawable.ic_call), contentDescription = "Voice call") }
-                IconButton(onClick = { viewModel.comingSoon("Video") }) { Icon(painterResource(R.drawable.ic_video), contentDescription = "Video call") }
+                Box {
+                    IconButton(onClick = { chatMenu = true }) { Icon(painterResource(R.drawable.ic_more), contentDescription = "Chat options") }
+                    DropdownMenu(expanded = chatMenu, onDismissRequest = { chatMenu = false }) {
+                        DropdownMenuItem(text = { Text("Video call") }, onClick = { chatMenu = false; viewModel.comingSoon("Video") })
+                        if (other != null) {
+                            DropdownMenuItem(text = { Text("Report") }, onClick = { chatMenu = false; reportingChat = true })
+                            DropdownMenuItem(text = { Text("Block", color = MaterialTheme.colorScheme.error) }, onClick = { chatMenu = false; blockingChat = true })
+                        }
+                    }
+                }
             }
+            if (other != null && reportingChat) ReportDialog(ReportTarget.User, other.uid, other.uid, onDismiss = { reportingChat = false })
+            if (other != null && blockingChat) BlockDialog(other, onDismiss = { blockingChat = false; onBack() })
             HorizontalDivider(color = OneFeraTheme.extras.glassBorder)
 
             // Messages, newest at the bottom.

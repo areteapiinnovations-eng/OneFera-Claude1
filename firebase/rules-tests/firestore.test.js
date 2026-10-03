@@ -368,3 +368,64 @@ describe('rewards', () => {
     await assertFails(setDoc(doc(db('alice'), 'users/alice/boxes/2026-10-03'), { opened: 0 }));
   });
 });
+
+describe('near', () => {
+  const spot = (uid, extra = {}) => ({ geohash: 'te7u6r', lat: 19.08, lng: 72.88, user: summary(uid), vibe: '', auraPoints: 0, updatedAt: serverTimestamp(), ...extra });
+
+  it('only stores coarse spots for adults with public accounts', async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'users/alice'), profile('alice'));
+      await setDoc(doc(f, 'users/kid'), profile('kid', { isMinor: true }));
+      await setDoc(doc(f, 'users/priv'), profile('priv', { isPrivate: true }));
+    });
+    await assertSucceeds(setDoc(doc(db('alice'), 'near/alice'), spot('alice')));
+    await assertFails(setDoc(doc(db('alice'), 'near/alice'), spot('alice', { lat: 19.07612 })));
+    await assertFails(setDoc(doc(db('kid'), 'near/kid'), spot('kid')));
+    await assertFails(setDoc(doc(db('priv'), 'near/priv'), spot('priv')));
+    await assertFails(setDoc(doc(db('bob'), 'near/alice'), spot('alice')));
+    await assertSucceeds(getDoc(doc(db('bob'), 'near/alice')));
+    await assertSucceeds(deleteDoc(doc(db('alice'), 'near/alice')));
+  });
+
+  it('only lets sellers list a store', async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'users/sam'), profile('sam', { accountMode: 'Seller' }));
+      await setDoc(doc(f, 'users/pat'), profile('pat'));
+    });
+    const store = (uid) => ({ geohash: 'te7u6r', lat: 19.08, lng: 72.88, seller: summary(uid), city: 'Mumbai', listings: 3, coverUrl: null });
+    await assertSucceeds(setDoc(doc(db('sam'), 'stores/sam'), store('sam')));
+    await assertFails(setDoc(doc(db('pat'), 'stores/pat'), store('pat')));
+  });
+});
+
+describe('safety', () => {
+  it('stops blocked people from following, commenting and messaging', async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'users/alice'), profile('alice'));
+      await setDoc(doc(f, 'users/mallory'), profile('mallory'));
+      await setDoc(doc(f, 'users/alice/blocked/mallory'), { createdAt: Date.now() });
+      await setDoc(doc(f, 'posts/p1'), post('alice'));
+      await setDoc(doc(f, 'conversations/alice_mallory'), { memberIds: ['alice', 'mallory'], lastMessageAt: 0 });
+    });
+    await assertFails(setDoc(doc(db('mallory'), 'users/alice/followers/mallory'), { createdAt: Date.now() }));
+    await assertFails(setDoc(doc(db('mallory'), 'users/alice/followRequests/mallory'), { createdAt: Date.now() }));
+    await assertFails(setDoc(doc(db('mallory'), 'posts/p1/comments/c1'), { authorId: 'mallory', author: summary('mallory'), text: 'hey' }));
+    await assertFails(setDoc(doc(db('mallory'), 'conversations/alice_mallory/messages/m1'), { senderId: 'mallory', text: 'hey', unsent: false }));
+    await assertSucceeds(setDoc(doc(db('alice'), 'conversations/alice_mallory/messages/m2'), { senderId: 'alice', text: 'bye', unsent: false }));
+    await assertFails(getDoc(doc(db('mallory'), 'users/alice/blocked/mallory')));
+  });
+
+  it('accepts anonymous reports but never exposes them', async () => {
+    const report = { reporterId: 'bob', targetType: 'Post', targetId: 'p1', ownerId: 'alice', reason: 'Spam', details: '', status: 'open', createdAt: serverTimestamp() };
+    await assertSucceeds(setDoc(doc(db('bob'), 'reports/r1'), report));
+    await assertFails(setDoc(doc(db('bob'), 'reports/r2'), { ...report, reporterId: 'alice' }));
+    await assertFails(setDoc(doc(db('bob'), 'reports/r3'), { ...report, reason: 'Boring' }));
+    await assertFails(getDoc(doc(db('bob'), 'reports/r1')));
+  });
+
+  it('never lets authors un-hide a moderated post', async () => {
+    await seed((f) => setDoc(doc(f, 'posts/p9'), post('alice', { hidden: true })));
+    await assertFails(updateDoc(doc(db('alice'), 'posts/p9'), { hidden: false }));
+    await assertFails(setDoc(doc(db('alice'), 'posts/p10'), post('alice', { hidden: true })));
+  });
+});

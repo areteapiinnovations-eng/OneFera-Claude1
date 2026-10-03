@@ -52,13 +52,35 @@ Switch any account to Seller from the profile menu, then open the **Seller hub**
 
 Sellers get a push for each new sale. In demo mode, a demo shopper buys a new listing about 20 seconds after it goes live, so the whole flow can be tried on one phone.
 
+### Near (people and stores)
+
+The Near tab shows creators and seller stores around you, privacy first:
+
+- Only **approximate location** is used: `ACCESS_COARSE_LOCATION`, rounded again to ~1 km before upload. Distances are shown as "~3 km away", never as a pin on a map.
+- **Off by default.** You can look around without being visible. "Show me on Near" adds you, and switching your account to private removes you instantly.
+- **Under-18s are never listed** and can't turn visibility on. Private accounts are excluded too. Firestore rules enforce all of this, not just the app.
+- Sellers can list their store; store pages show all their products, with Message and Profile buttons.
+- Entries that haven't been refreshed in 24 h disappear (scheduled `cleanUpNear`).
+- In demo mode, demo creators and stores are placed around your real location, or around Mumbai on emulators.
+
+### Safety
+
+- **Report** posts, comments (long-press), accounts and chats. Reports are anonymous and stored write-only in `reports/`.
+- **Block** from a post, profile or chat. Firestore rules stop blocked people from following, requesting, commenting or messaging, and the app hides their posts, reels, stories, comments, chats and Near presence. Manage blocks in Settings → Blocked accounts.
+- Posts reported by 3+ people (or once for self-harm) are hidden from feeds automatically until a moderator reviews them.
+- **Delete account** in Settings permanently removes the account and its content (Google Play requirement).
+
 ### Aura, streaks and rewards
 
 - **Aura** (0–1000; grades C, B, A, S and SSS) is earned for posting and for receiving likes, comments and followers. All Aura is granted server-side.
 - **Daily streak:** the first time the app opens each day (India time), the check-in adds +5 Aura, with a +25 bonus every 7th day. OneFera+ members get double. The 🔥 pill in the top bar opens Rewards.
 - **Mystery Box:** one a day after checking in (two with OneFera+). It contains Aura (10, 25 or 50) or a coupon: ₹50 off ₹499+, 10% off ₹999+ capped at ₹200, or free delivery. Coupons last 14 days and appear at checkout.
 - **Leaderboard:** global, friends and city rankings, with a podium for the top 3. The ⚡ pill in the top bar opens it.
-- **Memberships:** OneFera+ (₹199/mo) gives 2 boxes a day, double streak Aura, free delivery and a badge. Seller Pro (₹799/mo) adds unlimited listings (free sellers get 25), 30-day analytics and a Pro badge. Purchases are simulated in this build. Google Play requires Play Billing for digital subscriptions, and it is wired in with release hardening.
+- **Memberships:** OneFera+ (₹199/mo) gives 2 boxes a day, double streak Aura, free delivery and a badge. Seller Pro (₹799/mo) adds unlimited listings (free sellers get 25), 30-day analytics and a Pro badge.
+  - **Google Play Billing** (library 8.0) is used whenever the products exist in Play Console: `onefera_plus_monthly` and `onefera_seller_pro_monthly`, monthly base plans priced ₹199 and ₹799.
+  - Each purchase is bound to the account (obfuscated account id) and verified server-side by `verifyPlaySubscription`. That function calls the Play Developer API, so in Play Console → Users and permissions, grant the Cloud Functions service account access to view financial data and manage orders.
+  - Renewals and cancellations arrive through Real-time Developer Notifications: create the Pub/Sub topic `play-billing` and point Play Console → Monetization setup at it.
+  - In demo mode, or before the products exist, purchases are simulated.
 
 ### Payments (Razorpay)
 
@@ -72,7 +94,7 @@ Checkout runs in **simulated mode** by default. The full flow works end to end: 
   RAZORPAY_KEY_ID=rzp_live_xxx
   RAZORPAY_KEY_SECRET=xxx
   ```
-  The server then creates Razorpay orders and verifies each payment's HMAC signature. The Android Razorpay SDK hand-off arrives with release hardening (Phase 7). Until then, a build pointed at a live backend offers cash on delivery only.
+  The server then creates Razorpay orders, the app opens **Razorpay Checkout** (SDK 1.6.41) for UPI, cards and net banking, and `confirmPayment` verifies each payment's HMAC signature before the order is placed.
 
 ### What the backend does
 
@@ -143,6 +165,23 @@ branding/                           source logo and icon files (Play Store icon:
 
 **Architecture:** MVVM with a unidirectional data flow. Compose screens observe `StateFlow`s from Hilt ViewModels. ViewModels talk to repository interfaces, and each repository has a Firebase implementation and a demo implementation. Library versions are pinned in `gradle/libs.versions.toml`.
 
+## Release checklist
+
+See `docs/play-store/` for the store listing text, Data safety answers, content-rating notes and a privacy policy draft. Before the first production release:
+
+1. Create the Firebase project and deploy (see above). Load the catalogue with `npm run seed`.
+2. Create an upload keystore and `keystore.properties` (see *Build an APK / App Bundle*), and enrol in **Play App Signing**.
+3. Payments: set Razorpay live keys in `firebase/functions/.env`. Create the two subscription products and the `play-billing` topic.
+4. Host `https://onefera.app/privacy`, `/terms`, `/guidelines` and `/delete-account` (web deletion request). The privacy draft is in `docs/play-store/privacy-policy.md`.
+5. Decide **DPDP parental consent** for under-18s (see `docs/play-store/content-rating.md`).
+6. Play Console: Data safety, content rating, target audience, and an internal testing track first.
+7. Release hardening already in place:
+   - R8/shrinking with keep rules for Firestore models and Razorpay.
+   - HTTPS-only network config.
+   - No local data in backups.
+   - In-app account deletion: Settings → Delete account removes Firestore data, Storage files and the Auth user.
+   - Server-side checks for every price, payment, reward and membership.
+
 ## Brand
 
 - **Logo / icon:** a vector recreation of the OneFera mark (`OneFeraMark` composable, `drawable/onefera_mark.xml`), an adaptive and themed (monochrome) launcher icon, and the Android 12+ splash icon.
@@ -160,4 +199,4 @@ branding/                           source logo and icon files (Play Store icon:
 | 4 | Shop: catalogue, filters, product page, wishlist, cart, checkout (Razorpay, simulated), orders, product tags | ✅ |
 | 5 | Seller mode: dashboard, listings, inventory, orders, analytics | ✅ |
 | 6 | Aura engine, streaks, leaderboard, Mystery Box, memberships | ✅ |
-| 7 | Near (people + stores), release hardening, Play Store listing | next |
+| 7 | Near (people + stores), release hardening, Play Store listing | ✅ |

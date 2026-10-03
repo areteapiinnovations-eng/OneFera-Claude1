@@ -317,7 +317,7 @@ private fun Details(product: Product, variant: String, onVariant: (String) -> Un
                     .clip(shape)
                     .background(extras.glass)
                     .border(1.dp, extras.glassBorder, shape)
-                    .clickable(role = Role.Button) { actions.openUser(product.sellerId) }
+                    .clickable(role = Role.Button) { actions.openStore(product.sellerId) }
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

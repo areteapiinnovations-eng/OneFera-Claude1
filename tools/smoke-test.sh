@@ -171,6 +171,11 @@ tap_text "Profile menu";              sleep 2
 tap_text "Membership";                shot 28-membership 3
 back_to_tabs
 
+# Near: grant approximate location up front (emulators without a fix fall back to a demo spot).
+timeout 10 adb shell pm grant "$PKG" android.permission.ACCESS_COARSE_LOCATION || true
+tap_text "Near";                      shot 29-near-people 15
+tap_text "🏪 Stores";                 shot 30-near-stores 6
+
 if ! timeout 10 adb shell pidof "$PKG" >/dev/null; then
   echo "::error::App process is not running at the end of the smoke test"
   tail -100 "$OUT/logcat.txt"

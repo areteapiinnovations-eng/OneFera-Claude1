@@ -88,6 +88,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.onefera.app.data.moderation.ModerationRepository
 import javax.inject.Inject
 
 data class ReelsUiState(
@@ -103,12 +104,13 @@ class ReelsViewModel @Inject constructor(
     private val social: SocialRepository,
     private val actions: PostActions,
     auth: AuthRepository,
+    moderation: ModerationRepository,
 ) : ViewModel() {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages
 
     val state: StateFlow<ReelsUiState> = combine(
-        posts.reels().withInteractions(posts),
+        posts.reels().withInteractions(posts, moderation.blockedIds()),
         social.followingIds(),
         auth.session.map { (it as? SessionState.SignedIn)?.uid },
     ) { reels, following, uid ->

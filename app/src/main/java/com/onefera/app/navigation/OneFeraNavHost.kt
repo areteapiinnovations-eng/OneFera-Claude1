@@ -36,6 +36,8 @@ import com.onefera.app.feature.main.MainScreen
 import com.onefera.app.feature.onboarding.OnboardingScreen
 import com.onefera.app.feature.profile.EditProfileScreen
 import com.onefera.app.feature.settings.SettingsScreen
+import com.onefera.app.feature.near.StoreScreen
+import com.onefera.app.feature.moderation.BlockedAccountsScreen
 import com.onefera.app.feature.rewards.LeaderboardScreen
 import com.onefera.app.feature.rewards.MembershipScreen
 import com.onefera.app.feature.rewards.RewardsScreen
@@ -109,6 +111,8 @@ fun OneFeraNavHost(
             openRewards = { navController.navigate(RewardsRoute) { launchSingleTop = true } },
             openLeaderboard = { navController.navigate(LeaderboardRoute) { launchSingleTop = true } },
             openMembership = { navController.navigate(MembershipRoute) { launchSingleTop = true } },
+            openStore = { navController.navigate(StoreRoute(it)) },
+            openBlockedAccounts = { navController.navigate(BlockedAccountsRoute) { launchSingleTop = true } },
             back = { navController.popBackStack() },
         )
     }
@@ -202,6 +206,8 @@ fun OneFeraNavHost(
         composable<RewardsRoute> { RewardsScreen(onBack = { navController.popBackStack() }) }
         composable<LeaderboardRoute> { LeaderboardScreen(onBack = { navController.popBackStack() }) }
         composable<MembershipRoute> { MembershipScreen(onBack = { navController.popBackStack() }) }
+        composable<StoreRoute> { StoreScreen(onBack = { navController.popBackStack() }) }
+        composable<BlockedAccountsRoute> { BlockedAccountsScreen(onBack = { navController.popBackStack() }) }
         composable<NewChatRoute> {
             NewChatScreen(
                 onBack = { navController.popBackStack() },

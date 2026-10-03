@@ -55,16 +55,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import com.onefera.app.data.moderation.ModerationRepository
 import javax.inject.Inject
 
 data class ChatsUiState(val loading: Boolean = true, val conversations: List<Conversation> = emptyList(), val myUid: String = "")
 
 @HiltViewModel
-class ChatsViewModel @Inject constructor(chat: ChatRepository, auth: AuthRepository) : ViewModel() {
+class ChatsViewModel @Inject constructor(chat: ChatRepository, auth: AuthRepository, moderation: ModerationRepository) : ViewModel() {
     val state: StateFlow<ChatsUiState> = combine(
         chat.conversations(),
         auth.session.map { (it as? SessionState.SignedIn)?.uid.orEmpty() },
-    ) { list, uid -> ChatsUiState(false, list, uid) }
+        moderation.blockedIds(),
+    ) { list, uid, blocked -> ChatsUiState(false, list.filter { c -> c.memberIds.none { it in blocked } }, uid) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatsUiState())
 }
 

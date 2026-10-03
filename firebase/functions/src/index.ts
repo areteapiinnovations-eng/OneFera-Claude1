@@ -13,12 +13,15 @@
  */
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import { getMessaging } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
 import { setGlobalOptions } from "firebase-functions/v2";
-import { onDocumentCreated, onDocumentDeleted } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { GoogleAuth } from "google-auth-library";
+import { onMessagePublished } from "firebase-functions/v2/pubsub";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 
@@ -680,4 +683,167 @@ export const cancelMembership = onCall(async (request) => {
   const uid = requireUid(request.auth);
   await db.collection("users").doc(uid).update({ membershipPlan: "None", membershipExpiresAt: 0 });
   return { plan: "None" };
+});
+
+// ---------------------------------------------------------------- Near
+
+/** People who haven't refreshed Near in a day disappear from it. */
+export const cleanUpNear = onSchedule("every 60 minutes", async () => {
+  const stale = await db.collection("near").where("updatedAt", "<=", Timestamp.fromMillis(Date.now() - DAY)).limit(400).get();
+  await Promise.all(stale.docs.map((d) => d.ref.delete()));
+  if (!stale.empty) logger.info(`Removed ${stale.size} stale Near entries`);
+});
+
+/** Going private (or seller → personal) immediately hides the user from Near. */
+export const onUserUpdated = onDocumentUpdated("users/{uid}", async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  if (!before || !after) return;
+  const { uid } = event.params;
+  if (!before.isPrivate && after.isPrivate) await db.collection("near").doc(uid).delete().catch(() => undefined);
+  if (before.accountMode === "Seller" && after.accountMode !== "Seller") await db.collection("stores").doc(uid).delete().catch(() => undefined);
+});
+
+// ---------------------------------------------------------------- Google Play Billing (memberships)
+
+/**
+ * Play Store builds sell memberships as Google Play subscriptions. The app sends the purchase
+ * token here; we verify it with the Play Developer API (the functions' service account needs
+ * "View financial data" + "Manage orders" access in Play Console) and grant the plan until the
+ * subscription's expiry. Renewals and cancellations arrive as Real-time Developer Notifications
+ * on the Pub/Sub topic `play-billing`.
+ */
+const PLAY_PRODUCTS: Record<string, string> = {
+  onefera_plus_monthly: "Plus",
+  onefera_seller_pro_monthly: "SellerPro",
+};
+const ANDROID_PACKAGE = process.env.ANDROID_PACKAGE ?? "com.onefera.app";
+
+interface PlaySubscription {
+  subscriptionState?: string;
+  lineItems?: Array<{ productId: string; expiryTime?: string }>;
+  externalAccountIdentifiers?: { obfuscatedExternalAccountId?: string };
+}
+
+/** The app passes this as the obfuscated account id, binding a purchase to one OneFera user. */
+function accountHash(uid: string): string {
+  return createHash("sha256").update(uid).digest("hex").slice(0, 64);
+}
+
+async function fetchPlaySubscription(token: string): Promise<PlaySubscription> {
+  const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/androidpublisher"] });
+  const client = await auth.getClient();
+  const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${ANDROID_PACKAGE}` +
+    `/purchases/subscriptionsv2/tokens/${encodeURIComponent(token)}`;
+  const res = await client.request<PlaySubscription>({ url });
+  return res.data;
+}
+
+/** Applies a Play subscription's current state to the user. Returns the plan granted (or "None"). */
+async function applyPlaySubscription(uid: string, token: string, sub: PlaySubscription): Promise<{ plan: string; expiresAt: number }> {
+  const active = sub.subscriptionState === "SUBSCRIPTION_STATE_ACTIVE" || sub.subscriptionState === "SUBSCRIPTION_STATE_IN_GRACE_PERIOD" ||
+    sub.subscriptionState === "SUBSCRIPTION_STATE_CANCELED"; // cancelled = no renewal, still paid until expiry
+  const item = (sub.lineItems ?? []).find((l) => PLAY_PRODUCTS[l.productId]);
+  const expiresAt = item?.expiryTime ? Date.parse(item.expiryTime) : 0;
+  const plan = active && item && expiresAt > Date.now() ? PLAY_PRODUCTS[item.productId] : "None";
+  await db.runTransaction(async (tx) => {
+    const ref = db.collection("playPurchases").doc(createHash("sha256").update(token).digest("hex"));
+    const existing = await tx.get(ref);
+    if (existing.exists && existing.get("uid") !== uid) {
+      throw new HttpsError("permission-denied", "This purchase belongs to another account.");
+    }
+    tx.set(ref, { uid, token, productId: item?.productId ?? "", state: sub.subscriptionState ?? "", expiresAt, updatedAt: Timestamp.now() });
+    tx.update(db.collection("users").doc(uid), plan === "None"
+      ? { membershipPlan: "None", membershipExpiresAt: 0 }
+      : { membershipPlan: plan, membershipExpiresAt: expiresAt });
+  });
+  return { plan, expiresAt };
+}
+
+export const verifyPlaySubscription = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const productId = String(request.data?.productId ?? "");
+  const token = String(request.data?.purchaseToken ?? "");
+  if (!PLAY_PRODUCTS[productId] || !token) throw new HttpsError("invalid-argument", "Unknown purchase.");
+  let sub: PlaySubscription;
+  try {
+    sub = await fetchPlaySubscription(token);
+  } catch (e) {
+    logger.error("Play verification failed", e);
+    throw new HttpsError("unavailable", "We couldn't confirm your purchase with Google Play yet. It'll update shortly.");
+  }
+  const owner = sub.externalAccountIdentifiers?.obfuscatedExternalAccountId;
+  if (owner && owner !== accountHash(uid)) throw new HttpsError("permission-denied", "This purchase belongs to another account.");
+  return applyPlaySubscription(uid, token, sub);
+});
+
+/** Real-time Developer Notifications: renewals, cancellations, expiries, refunds. */
+export const onPlayNotification = onMessagePublished("play-billing", async (event) => {
+  const payload = event.data.message.json as { subscriptionNotification?: { purchaseToken?: string } } | undefined;
+  const token = payload?.subscriptionNotification?.purchaseToken;
+  if (!token) return;
+  const record = await db.collection("playPurchases").doc(createHash("sha256").update(token).digest("hex")).get();
+  const uid = record.get("uid") as string | undefined;
+  if (!uid) return; // not yet linked; the app verifies on purchase
+  try {
+    await applyPlaySubscription(uid, token, await fetchPlaySubscription(token));
+  } catch (e) {
+    logger.error("Couldn't refresh Play subscription", e);
+  }
+});
+
+// ---------------------------------------------------------------- account deletion
+
+/**
+ * In-app account deletion (Google Play requirement). The app re-authenticates first. Deletes the
+ * profile and everything under it, the username claim, posts (media cleanup runs via
+ * onPostDeleted), stories, listings, Near entries and avatar files, then the Auth user.
+ * Orders stay for tax/refund records but lose the buyer's address.
+ */
+export const deleteAccount = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const userRef = db.collection("users").doc(uid);
+  const username = (await userRef.get()).get("username") as string | undefined;
+
+  const owned = await Promise.all([
+    db.collection("posts").where("authorId", "==", uid).get(),
+    db.collection("stories").where("authorId", "==", uid).get(),
+    db.collection("products").where("sellerId", "==", uid).get(),
+  ]);
+  for (const snap of owned) {
+    for (const doc of snap.docs) await db.recursiveDelete(doc.ref);
+  }
+  const orders = await db.collection("orders").where("buyerId", "==", uid).get();
+  await Promise.all(orders.docs.map((d) => d.ref.update({ address: { name: "Deleted user", phone: "", line1: "", line2: "", city: "", state: "", pincode: "" } })));
+
+  await Promise.all([
+    db.collection("near").doc(uid).delete().catch(() => undefined),
+    db.collection("stores").doc(uid).delete().catch(() => undefined),
+    username ? db.collection("usernames").doc(username).delete().catch(() => undefined) : Promise.resolve(),
+    getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}/` }).catch(() => undefined),
+    getStorage().bucket().deleteFiles({ prefix: `products/${uid}/` }).catch(() => undefined),
+  ]);
+  await db.recursiveDelete(userRef);
+  await getAuth().deleteUser(uid);
+  logger.info(`Deleted account ${uid}`);
+  return { deleted: true };
+});
+
+// ---------------------------------------------------------------- moderation
+
+/** Posts reported by this many different people are hidden from feeds until a moderator reviews them. */
+const AUTO_HIDE_REPORTS = 3;
+
+export const onReportCreated = onDocumentCreated("reports/{reportId}", async (event) => {
+  const report = event.data?.data();
+  if (!report) return;
+  logger.info(`Report ${event.params.reportId}: ${report.targetType} ${report.targetId} for ${report.reason}`);
+  if (report.targetType !== "Post") return;
+  const reports = await db.collection("reports")
+    .where("targetType", "==", "Post").where("targetId", "==", report.targetId).limit(50).get();
+  const reporters = new Set(reports.docs.map((d) => d.get("reporterId") as string));
+  // Self-harm reports hide immediately so a moderator can reach out first.
+  if (reporters.size >= AUTO_HIDE_REPORTS || report.reason === "SelfHarm") {
+    await db.collection("posts").doc(report.targetId).update({ hidden: true }).catch(() => undefined);
+  }
 });

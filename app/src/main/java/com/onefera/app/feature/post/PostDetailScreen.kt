@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.onefera.app.data.moderation.ModerationRepository
 import javax.inject.Inject
 
 data class PostDetailUiState(
@@ -73,13 +74,15 @@ class PostDetailViewModel @Inject constructor(
     private val posts: PostRepository,
     private val actions: PostActions,
     auth: AuthRepository,
+    moderation: ModerationRepository,
 ) : ViewModel() {
+    private val blocked = moderation.blockedIds()
     private val postId = savedStateHandle.toRoute<PostDetailRoute>().postId
     private val form = MutableStateFlow(PostDetailUiState())
 
     val state: StateFlow<PostDetailUiState> = combine(
-        posts.post(postId).map { listOfNotNull(it) }.withInteractions(posts).map { it.firstOrNull() },
-        posts.comments(postId),
+        posts.post(postId).map { listOfNotNull(it) }.withInteractions(posts, blocked).map { it.firstOrNull() },
+        combine(posts.comments(postId), blocked) { list, hidden -> list.filter { it.author.uid !in hidden } },
         auth.session.map { (it as? SessionState.SignedIn)?.uid },
         form,
     ) { item, comments, uid, f ->

@@ -31,3 +31,5 @@ import kotlinx.serialization.Serializable
 @Serializable data object RewardsRoute
 @Serializable data object LeaderboardRoute
 @Serializable data object MembershipRoute
+@Serializable data class StoreRoute(val sellerId: String)
+@Serializable data object BlockedAccountsRoute

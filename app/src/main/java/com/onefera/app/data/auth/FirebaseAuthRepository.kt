@@ -2,7 +2,10 @@ package com.onefera.app.data.auth
 
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
+import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
@@ -51,6 +54,18 @@ class FirebaseAuthRepository @Inject constructor(
     }
 
     override suspend fun signOut() {
+        auth.signOut()
+    }
+
+    override suspend fun deleteAccount(password: String): Result<Unit> = runAuth {
+        val user = auth.currentUser ?: throw UserFacingException("Please log in again.")
+        // Firebase requires a recent sign-in for destructive actions.
+        user.reauthenticate(EmailAuthProvider.getCredential(user.email.orEmpty(), password)).await()
+        try {
+            FirebaseFunctions.getInstance("asia-south1").getHttpsCallable("deleteAccount").call().await()
+        } catch (e: FirebaseFunctionsException) {
+            throw UserFacingException(e.message ?: "Couldn't delete your account. Try again.", e)
+        }
         auth.signOut()
     }
 

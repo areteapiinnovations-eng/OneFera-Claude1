@@ -13,6 +13,10 @@ service cloud.firestore {
       return signedIn() && exists(/databases/$(database)/documents/users/$(targetUid)/followers/$(me()));
     }
     function incoming() { return request.resource.data; }
+    /** True when [ownerUid] has blocked the signed-in user. */
+    function blockedBy(ownerUid) {
+      return exists(/databases/$(database)/documents/users/$(ownerUid)/blocked/$(me()));
+    }
     function changed() { return incoming().diff(resource.data).affectedKeys(); }
 
     // ------------------------------------------------------------ users
@@ -70,14 +74,14 @@ service cloud.firestore {
       // the owner adds approved requesters.
       match /followers/{followerUid} {
         allow read: if signedIn();
-        allow create: if (isOwner(followerUid) && get(userDoc(uid)).data.isPrivate == false)
+        allow create: if (isOwner(followerUid) && !blockedBy(uid) && get(userDoc(uid)).data.isPrivate == false)
           || (isOwner(uid) && exists(/databases/$(database)/documents/users/$(uid)/followRequests/$(followerUid)));
         allow delete: if isOwner(followerUid) || isOwner(uid);
       }
 
       match /followRequests/{requesterUid} {
         allow read: if isOwner(uid) || isOwner(requesterUid);
-        allow create: if isOwner(requesterUid) && requesterUid != uid;
+        allow create: if isOwner(requesterUid) && requesterUid != uid && !blockedBy(uid);
         allow delete: if isOwner(uid) || isOwner(requesterUid);
       }
 
@@ -97,6 +101,11 @@ service cloud.firestore {
 
       match /fcmTokens/{token} {
         allow read, write: if isOwner(uid);
+      }
+
+      match /blocked/{targetUid} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && targetUid != uid;
       }
 
       // ---- shop (private to the user)
@@ -168,6 +177,7 @@ service cloud.firestore {
         && incoming().media is list && incoming().media.size() >= 1 && incoming().media.size() <= 10
         && incoming().tags is list && incoming().tags.size() <= 30
         && incoming().get('products', []) is list && incoming().get('products', []).size() <= 5
+        && incoming().get('hidden', false) == false
         && incoming().likeCount == 0
         && incoming().commentCount == 0
         && incoming().shareCount == 0;
@@ -190,7 +200,8 @@ service cloud.firestore {
           && incoming().authorId == me()
           && incoming().author.uid == me()
           && incoming().text is string && incoming().text.size() >= 1 && incoming().text.size() <= 500
-          && canSeePost(get(/databases/$(database)/documents/posts/$(postId)).data);
+          && canSeePost(get(/databases/$(database)/documents/posts/$(postId)).data)
+          && !blockedBy(get(/databases/$(database)/documents/posts/$(postId)).data.authorId);
         allow delete: if signedIn() && (resource.data.authorId == me()
           || get(/databases/$(database)/documents/posts/$(postId)).data.authorId == me());
       }
@@ -239,6 +250,7 @@ service cloud.firestore {
 
         allow read: if isMember(convo());
         allow create: if isMember(convo())
+          && !blockedBy(convo().memberIds[0]) && !blockedBy(convo().memberIds[1])
           && incoming().senderId == me()
           && incoming().text is string && incoming().text.size() <= 2000
           && (incoming().text.size() > 0 || incoming().get('attachment', null) != null)
@@ -294,6 +306,49 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow read: if signedIn() && (resource.data.buyerId == me() || me() in resource.data.get('sellerIds', []));
       allow write: if false;
+    }
+
+    // ------------------------------------------------------------ Near
+
+    // Coarse positions only: coordinates must be rounded to 2 decimals (~1 km). Under-18s and
+    // private accounts can't appear on Near.
+    function coarse(v) { return v is number && math.abs(v * 100 - math.round(v * 100)) < 0.000001; }
+    function validSpot(d) {
+      return d.geohash is string && d.geohash.size() == 6
+        && coarse(d.lat) && d.lat >= -90 && d.lat <= 90
+        && coarse(d.lng) && d.lng >= -180 && d.lng <= 180;
+    }
+
+    match /near/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid)
+        && validSpot(incoming())
+        && incoming().user.uid == uid
+        && get(userDoc(uid)).data.isMinor == false
+        && get(userDoc(uid)).data.isPrivate == false;
+      allow delete: if isOwner(uid);
+    }
+
+    match /stores/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid)
+        && validSpot(incoming())
+        && incoming().seller.uid == uid
+        && get(userDoc(uid)).data.accountMode == 'Seller';
+      allow delete: if isOwner(uid);
+    }
+
+    // ------------------------------------------------------------ reports (write-only for clients)
+
+    match /reports/{reportId} {
+      allow create: if signedIn()
+        && incoming().reporterId == me()
+        && incoming().targetType in ['Post', 'Comment', 'User', 'Message', 'Product']
+        && incoming().targetId is string && incoming().targetId.size() > 0 && incoming().targetId.size() <= 128
+        && incoming().reason in ['Spam', 'Harassment', 'Hate', 'Nudity', 'Violence', 'SelfHarm', 'Fake', 'Counterfeit', 'Other']
+        && incoming().details is string && incoming().details.size() <= 500
+        && incoming().status == 'open';
+      allow read, update, delete: if false;
     }
 
     // ------------------------------------------------------------ tags (Cloud Functions only)

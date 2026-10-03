@@ -77,6 +77,7 @@ import com.onefera.app.feature.profile.ProfileTab
 import com.onefera.app.feature.reels.ReelsTab
 import com.onefera.app.feature.search.SearchTab
 import com.onefera.app.feature.shop.ShopTab
+import com.onefera.app.feature.near.NearTab
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -150,6 +151,7 @@ fun MainScreen(
                                 onMessage = viewModel::showMessage,
                             )
                             MainTab.Search -> SearchTab(openShopSection = searchShop, onSectionOpened = { searchShop = false })
+                            MainTab.Near -> NearTab(onMessage = viewModel::showMessage)
                             MainTab.Shop -> ShopTab(
                                 onSearch = {
                                     searchShop = true
@@ -167,7 +169,6 @@ fun MainScreen(
                                 onSignOut = viewModel::signOut,
                                 onMessage = viewModel::showMessage,
                             )
-                            else -> UpcomingTab(current)
                         }
                     }
                 }

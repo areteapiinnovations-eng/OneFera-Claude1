@@ -55,6 +55,12 @@ import com.onefera.app.data.model.MembershipPlan
 import com.onefera.app.data.model.UserProfile
 import com.onefera.app.data.model.formatRupees
 import com.onefera.app.data.rewards.RewardsRepository
+import com.onefera.app.data.payments.PlayBilling
+import com.android.billingclient.api.ProductDetails
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.compose.ui.platform.LocalContext
 import com.onefera.app.data.user.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -78,7 +84,21 @@ class MembershipViewModel @Inject constructor(
     auth: AuthRepository,
     users: UserRepository,
     private val rewards: RewardsRepository,
+    private val billing: PlayBilling,
 ) : ViewModel() {
+    /** Play Store listings for the plans, when Play Billing is set up for this build. */
+    var playProducts by mutableStateOf<Map<MembershipPlan, ProductDetails>>(emptyMap())
+        private set
+
+    init {
+        viewModelScope.launch {
+            playProducts = runCatching { billing.products() }.getOrDefault(emptyMap())
+            runCatching { billing.syncPurchases() }
+        }
+    }
+
+    fun priceLabel(plan: MembershipPlan): String? =
+        playProducts[plan]?.subscriptionOfferDetails?.firstOrNull()?.pricingPhases?.pricingPhaseList?.lastOrNull()?.formattedPrice
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages: Flow<String> = _messages.receiveAsFlow()
 
@@ -88,7 +108,15 @@ class MembershipViewModel @Inject constructor(
     var busy by mutableStateOf(false)
         private set
 
-    fun subscribe(plan: MembershipPlan) = perform({ rewards.subscribe(plan) }, "Welcome to ${plan.label} 💎")
+    /** Google Play when the plan is listed there; otherwise the simulated purchase (demo / test builds). */
+    fun subscribe(plan: MembershipPlan, activity: Activity?) {
+        val details = playProducts[plan]
+        if (details != null && activity != null) {
+            perform({ billing.purchase(activity, plan, details) }, "Welcome to ${plan.label} 💎")
+        } else {
+            perform({ rewards.subscribe(plan) }, "Welcome to ${plan.label} 💎")
+        }
+    }
     fun cancel() = perform({ rewards.cancelMembership() }, "Membership cancelled. You can rejoin anytime.")
 
     private fun perform(action: suspend () -> Result<Unit>, success: String) {
@@ -111,6 +139,7 @@ fun MembershipScreen(onBack: () -> Unit, viewModel: MembershipViewModel = hiltVi
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
     val active = profile?.membership?.active() ?: MembershipPlan.None
     val date = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
+    val context = LocalContext.current
 
     AuroraBackground(Modifier.fillMaxSize(), intensity = 0.55f) {
         Scaffold(
@@ -132,6 +161,7 @@ fun MembershipScreen(onBack: () -> Unit, viewModel: MembershipViewModel = hiltVi
                 listOf(MembershipPlan.Plus, MembershipPlan.SellerPro).forEach { plan ->
                     PlanCard(
                         plan = plan,
+                        price = viewModel.priceLabel(plan) ?: formatRupees(plan.monthlyPrice),
                         current = plan == active,
                         busy = viewModel.busy,
                         onChoose = { confirm = plan },
@@ -141,7 +171,11 @@ fun MembershipScreen(onBack: () -> Unit, viewModel: MembershipViewModel = hiltVi
                     GlassButton("Cancel membership", onClick = viewModel::cancel, enabled = !viewModel.busy, modifier = Modifier.fillMaxWidth())
                 }
                 Text(
-                    "Billed monthly. Cancel anytime. In this build, purchases are simulated; Play Store releases charge through Google Play.",
+                    if (viewModel.playProducts.isNotEmpty()) {
+                        "Billed monthly through Google Play. Manage or cancel anytime in Play Store → Subscriptions."
+                    } else {
+                        "Billed monthly. Cancel anytime. In this build, purchases are simulated; Play Store releases charge through Google Play."
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = OneFeraTheme.extras.muted,
                 )
@@ -153,15 +187,23 @@ fun MembershipScreen(onBack: () -> Unit, viewModel: MembershipViewModel = hiltVi
         AlertDialog(
             onDismissRequest = { confirm = null },
             title = { Text("Get ${plan.label}?") },
-            text = { Text("${formatRupees(plan.monthlyPrice)} a month. This is a simulated purchase, no money is charged.") },
-            confirmButton = { TextButton(onClick = { confirm = null; viewModel.subscribe(plan) }) { Text("Subscribe") } },
+            text = {
+                Text(
+                    if (viewModel.playProducts.containsKey(plan)) {
+                        "${viewModel.priceLabel(plan)} a month, billed by Google Play."
+                    } else {
+                        "${formatRupees(plan.monthlyPrice)} a month. This is a simulated purchase, no money is charged."
+                    },
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirm = null; viewModel.subscribe(plan, context.findActivity()) }) { Text("Subscribe") } },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Not now") } },
         )
     }
 }
 
 @Composable
-private fun PlanCard(plan: MembershipPlan, current: Boolean, busy: Boolean, onChoose: () -> Unit) {
+private fun PlanCard(plan: MembershipPlan, price: String, current: Boolean, busy: Boolean, onChoose: () -> Unit) {
     val extras = OneFeraTheme.extras
     val shape = RoundedCornerShape(26.dp)
     Column(
@@ -181,7 +223,7 @@ private fun PlanCard(plan: MembershipPlan, current: Boolean, busy: Boolean, onCh
         }
         Text(plan.tagline, style = MaterialTheme.typography.bodyMedium, color = extras.muted)
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(formatRupees(plan.monthlyPrice), style = MaterialTheme.typography.headlineMedium)
+            Text(price, style = MaterialTheme.typography.headlineMedium)
             Text(" / month", style = MaterialTheme.typography.bodyMedium, color = extras.muted, modifier = Modifier.padding(bottom = 4.dp))
         }
         plan.benefits.forEach { b ->
@@ -194,4 +236,10 @@ private fun PlanCard(plan: MembershipPlan, current: Boolean, busy: Boolean, onCh
         Spacer(Modifier.height(4.dp))
         GradientButton(if (current) "Renew for a month" else "Get ${plan.label}", onClick = onChoose, enabled = !busy)
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

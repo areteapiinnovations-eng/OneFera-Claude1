@@ -64,6 +64,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
+import com.onefera.app.data.moderation.ModerationRepository
 import javax.inject.Inject
 
 enum class SearchSection(val label: String) { Top("Top"), Accounts("Accounts"), Tags("Tags"), Shop("Shop") }
@@ -94,7 +95,9 @@ class SearchViewModel @Inject constructor(
     private val social: SocialRepository,
     private val settings: SettingsRepository,
     private val shop: ShopRepository,
+    moderation: ModerationRepository,
 ) : ViewModel() {
+    private val blocked = moderation.blockedIds()
     private val query = MutableStateFlow("")
     private val section = MutableStateFlow(SearchSection.Top)
 
@@ -121,10 +124,11 @@ class SearchViewModel @Inject constructor(
         combine(query, section) { q, s -> q to s },
         results,
         combine(settings.settings.map { it.recentSearches }, trending) { recent, trend -> recent to trend },
-        social.suggestions(),
-        shopping,
-    ) { (q, s), r, (recent, trend), suggested, (popular, wished) ->
-        SearchUiState(q, s, r, recent, trend, suggested.take(8), popular, wished)
+        combine(social.suggestions(), blocked) { list, hidden -> list.filter { it.uid !in hidden } },
+        combine(shopping, blocked) { shop, hidden -> shop to hidden },
+    ) { (q, s), r, (recent, trend), suggested, (shop, hidden) ->
+        val (popular, wished) = shop
+        SearchUiState(q, s, r.copy(users = r.users.filter { it.uid !in hidden }), recent, trend, suggested.take(8), popular, wished)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchUiState())
 
     fun toggleWish(product: Product) = viewModelScope.launch {

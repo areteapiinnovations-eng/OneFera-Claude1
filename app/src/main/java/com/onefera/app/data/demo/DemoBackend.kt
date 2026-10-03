@@ -130,6 +130,11 @@ class DemoBackend @Inject constructor(
         update { s -> s.copy(sessionUid = null) to Unit }
     }
 
+    suspend fun passwordMatches(password: String): Boolean {
+        val s = current()
+        return s.accounts.firstOrNull { it.profile.uid == s.sessionUid }?.password == password
+    }
+
     suspend fun deleteSessionAccount() {
         update { s -> s.copy(accounts = s.accounts.filterNot { it.profile.uid == s.sessionUid }, sessionUid = null) to Unit }
     }
@@ -217,6 +222,11 @@ class DemoAuthRepository @Inject constructor(
 
     override suspend fun signOut() = backend.signOut()
     override suspend fun deleteCurrentAccount() = backend.deleteSessionAccount()
+
+    override suspend fun deleteAccount(password: String): Result<Unit> = runCatching {
+        if (!backend.passwordMatches(password)) throw UserFacingException("That password isn't right.")
+        backend.deleteSessionAccount()
+    }
 }
 
 @Singleton

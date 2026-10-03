@@ -30,6 +30,8 @@ data class AppActions(
     val openRewards: () -> Unit = {},
     val openLeaderboard: () -> Unit = {},
     val openMembership: () -> Unit = {},
+    val openStore: (sellerId: String) -> Unit = {},
+    val openBlockedAccounts: () -> Unit = {},
     val back: () -> Unit = {},
 )
 

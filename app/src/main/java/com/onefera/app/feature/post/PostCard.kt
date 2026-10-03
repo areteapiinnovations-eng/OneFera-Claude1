@@ -59,6 +59,9 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
 import com.onefera.app.feature.shop.ProductTagChip
+import com.onefera.app.feature.moderation.BlockDialog
+import com.onefera.app.feature.moderation.ReportDialog
+import com.onefera.app.data.moderation.ReportTarget
 import androidx.compose.foundation.layout.widthIn
 import com.onefera.app.R
 import com.onefera.app.core.common.compactCount
@@ -172,6 +175,8 @@ private fun PostHeader(post: Post, isMine: Boolean, onDelete: () -> Unit, onShar
     val actions = LocalAppActions.current
     val extras = OneFeraTheme.extras
     var menu by remember { mutableStateOf(false) }
+    var reporting by remember { mutableStateOf(false) }
+    var blocking by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 12.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -207,10 +212,21 @@ private fun PostHeader(post: Post, isMine: Boolean, onDelete: () -> Unit, onShar
                         text = { Text("Delete post", color = MaterialTheme.colorScheme.error) },
                         onClick = { menu = false; onDelete() },
                     )
+                } else {
+                    DropdownMenuItem(
+                        text = { Text("Report", color = MaterialTheme.colorScheme.error) },
+                        onClick = { menu = false; reporting = true },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Block @${post.author.username}") },
+                        onClick = { menu = false; blocking = true },
+                    )
                 }
             }
         }
     }
+    if (reporting) ReportDialog(ReportTarget.Post, post.id, post.authorId, onDismiss = { reporting = false })
+    if (blocking) BlockDialog(post.author, onDismiss = { blocking = false })
 }
 
 @Composable
