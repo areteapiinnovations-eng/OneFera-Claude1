@@ -24,6 +24,8 @@ import com.onefera.app.data.social.PostRepository
 import com.onefera.app.data.social.SocialRepository
 import com.onefera.app.data.social.StoryRepository
 import com.onefera.app.data.shop.ShopRepository
+import com.onefera.app.data.seller.SellerRepository
+import com.onefera.app.data.firebase.FirestoreSellerRepository
 import com.onefera.app.data.user.FirestoreUserRepository
 import com.onefera.app.data.user.UserRepository
 import dagger.Module
@@ -109,4 +111,13 @@ object AppModule {
         firestore: Provider<FirestoreShopRepository>,
         demo: Provider<DemoShopRepository>,
     ): ShopRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    /** In demo mode the shop repository also plays the seller backend (same on-device store). */
+    @Provides
+    @Singleton
+    fun provideSellerRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestoreSellerRepository>,
+        demo: Provider<DemoShopRepository>,
+    ): SellerRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
 }

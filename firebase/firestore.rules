@@ -240,16 +240,46 @@ service cloud.firestore {
 
     // ------------------------------------------------------------ shop
 
-    // Catalogue: readable by everyone signed in. Listings are managed by admins for now
-    // (seller self-service arrives with Seller mode); stock and sales counters by Cloud Functions.
-    match /products/{productId} {
-      allow read: if signedIn();
-      allow write: if false;
+    function isSellerAccount() {
+      return signedIn() && get(userDoc(me())).data.accountMode == 'Seller';
     }
 
-    // Orders are created, paid, cancelled and advanced only by Cloud Functions.
+    function validListing(d) {
+      return d.title is string && d.title.size() >= 3 && d.title.size() <= 80
+        && d.brand is string && d.brand.size() <= 40
+        && d.description is string && d.description.size() <= 1000
+        && d.category in ['Mobiles', 'Electronics', 'Fashion', 'Beauty', 'Appliances', 'Groceries', 'KidsToys', 'More']
+        && d.price is int && d.price >= 10 && d.price <= 500000
+        && d.mrp is int && d.mrp >= d.price && d.mrp <= 5000000
+        && d.stock is int && d.stock >= 0 && d.stock <= 9999
+        && d.images is list && d.images.size() >= 1 && d.images.size() <= 5
+        && d.variants is list && d.variants.size() <= 12
+        && d.highlights is list && d.highlights.size() <= 6
+        && d.keywords is list && d.keywords.size() <= 200
+        && d.seller.uid == me()
+        && d.isDrop == false;
+    }
+
+    // Catalogue: readable by everyone signed in. Sellers manage their own listings; sales
+    // counters and ratings belong to Cloud Functions, and Drops are picked by admins.
+    match /products/{productId} {
+      allow read: if signedIn();
+      allow create: if isSellerAccount()
+        && incoming().sellerId == me()
+        && validListing(incoming())
+        && incoming().soldCount == 0 && incoming().rating == 0 && incoming().ratingCount == 0;
+      allow update: if isSellerAccount()
+        && resource.data.sellerId == me()
+        && incoming().sellerId == me()
+        && !changed().hasAny(['soldCount', 'rating', 'ratingCount', 'createdAt', 'isDrop'])
+        && validListing(incoming());
+      allow delete: if signedIn() && resource.data.sellerId == me();
+    }
+
+    // Orders are created, paid, cancelled and advanced only by Cloud Functions. Buyers and the
+    // sellers whose items are in the order can read it.
     match /orders/{orderId} {
-      allow read: if signedIn() && resource.data.buyerId == me();
+      allow read: if signedIn() && (resource.data.buyerId == me() || me() in resource.data.get('sellerIds', []));
       allow write: if false;
     }
 

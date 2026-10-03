@@ -448,6 +448,16 @@ export const confirmPayment = onCall(async (request) => {
   await Promise.all(cart.docs.filter((d) => bought.has(d.get("product.id"))).map((d) => d.ref.delete()));
 
   await sendPush(uid, "Order placed 🎉", `We've got your order of ₹${order.get("total")}. We'll keep you posted!`, { open: `order:${orderId}`, type: "Order" });
+  // Tell each seller in the order about their new sale.
+  const sellerIds = (order.get("sellerIds") as string[] | undefined) ?? [];
+  await Promise.all(
+    sellerIds.map((sellerId) => {
+      const mine = lines.filter((l) => l.product.sellerId === sellerId);
+      const units = mine.reduce((n, l) => n + l.quantity, 0);
+      const amount = mine.reduce((n, l) => n + l.price * l.quantity, 0);
+      return sendPush(sellerId, "New order 🛍️", `${units} × ${mine[0]?.product.title ?? "item"} · ₹${amount}`, { open: `sellerorder:${orderId}`, type: "SellerOrder" });
+    }),
+  );
   return { status: "Placed" };
 });
 
@@ -497,10 +507,36 @@ export const advanceSimulatedOrders = onSchedule("every 15 minutes", async () =>
     const due = await db.collection("orders").where("status", "==", status)
       .where("createdAt", "<=", Timestamp.fromMillis(now - step.age)).limit(200).get();
     await Promise.all(
-      due.docs.map(async (d) => {
+      // Orders with marketplace sellers are fulfilled by the sellers themselves (Seller hub).
+      due.docs.filter((d) => ((d.get("sellerIds") as string[] | undefined) ?? []).length === 0).map(async (d) => {
         await d.ref.update({ "status": step.next, [`history.${step.next}`]: Timestamp.now() });
         await sendPush(d.get("buyerId"), step.title, `Order ${d.id}`, { open: `order:${d.id}`, type: "Order" });
       }),
     );
   }
+});
+
+const NEXT_STATUS: Record<string, { next: string; title: string }> = {
+  Placed: { next: "Packed", title: "Packed and ready 📦" },
+  Packed: { next: "Shipped", title: "Your order has shipped 🚚" },
+  Shipped: { next: "OutForDelivery", title: "Out for delivery today 🛵" },
+  OutForDelivery: { next: "Delivered", title: "Delivered! Enjoy ✨" },
+};
+
+/** Seller hub: a seller in the order moves it one step along the delivery timeline. */
+export const updateOrderStatus = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const orderId = String(request.data?.orderId ?? "");
+  const ref = db.collection("orders").doc(orderId);
+  const result = await db.runTransaction(async (tx) => {
+    const order = await tx.get(ref);
+    const sellerIds = (order.get("sellerIds") as string[] | undefined) ?? [];
+    if (!order.exists || !sellerIds.includes(uid)) throw new HttpsError("not-found", "Order not found.");
+    const step = NEXT_STATUS[order.get("status") as string];
+    if (!step) throw new HttpsError("failed-precondition", `This order is already ${String(order.get("status")).toLowerCase()}.`);
+    tx.update(ref, { "status": step.next, [`history.${step.next}`]: Timestamp.now() });
+    return { buyerId: order.get("buyerId") as string, ...step };
+  });
+  await sendPush(result.buyerId, result.title, `Order ${orderId}`, { open: `order:${orderId}`, type: "Order" });
+  return { status: result.next };
 });

@@ -42,6 +42,16 @@ Requirements: a current Android Studio with its bundled JDK 17+. Devices need An
    ```
    Re-running it refreshes titles, prices and images, and keeps live stock and sales counts. The sample product photos are hosted on the free DummyJSON test-data CDN. Replace them with real listings before launch.
 
+### Seller mode
+
+Switch any account to Seller from the profile menu, then open the **Seller hub**:
+
+- **Overview:** total sales, orders, average order value, a 7-day sales chart with the week-over-week change, best sellers, and low-stock alerts with one-tap restock.
+- **Listings:** add or edit products with up to 5 photos, category, price and MRP, stock, sizes or colours, and highlights. Listings appear in the Shop and can be tagged in posts. Stock can be adjusted inline.
+- **Orders:** orders that contain your items, filterable by *to ship*, *in transit*, *delivered* and *cancelled*. *Mark as packed → shipped → out for delivery → delivered* updates the buyer's tracking and sends them a push.
+
+Sellers get a push for each new sale. In demo mode, a demo shopper buys a new listing about 20 seconds after it goes live, so the whole flow can be tried on one phone.
+
 ### Payments (Razorpay)
 
 Checkout runs in **simulated mode** by default. The full flow works end to end: the server re-prices the cart, the payment sheet appears, the order is confirmed and stock is reduced. No real money moves.
@@ -64,7 +74,7 @@ Checkout runs in **simulated mode** by default. The full flow works end to end: 
 | Storage rules | `firebase/storage.rules` | Avatars (≤ 5 MB), post photos (≤ 15 MB) and videos (≤ 100 MB), stories |
 | Indexes | `firebase/firestore.indexes.json` | Feed, reels, profile grid, hashtag, notification and order queries |
 | Cloud Functions | `firebase/functions` (TypeScript) | Like, comment, follower and post counters; Aura points; notifications plus push; chat previews, unread counts and message push; hashtag counts; media and expired-story cleanup; checkout (`startCheckout`, `confirmPayment`, `cancelOrder`) and the simulated courier |
-| Shop data | `products`, `orders`, `users/{uid}/cart, wishlist, addresses` | Anyone signed in can read the catalogue, and only admins or functions can write it. Carts, wishlists and addresses are private. Orders are readable by the buyer and written only by functions. |
+| Shop data | `products`, `orders`, `users/{uid}/cart, wishlist, addresses` | Anyone signed in can read the catalogue. Seller accounts create and edit only their own listings, and can't touch sales counters or ratings. Carts, wishlists and addresses are private. Orders are readable by the buyer and the sellers in them, and written only by functions (`updateOrderStatus` for sellers). |
 | Rules tests | `firebase/rules-tests` | Run with `npm ci && npm test` (starts the Firestore emulator). These also run in CI. |
 
 ## Build an APK / App Bundle (AAB)
@@ -109,6 +119,8 @@ app/src/main/java/com/onefera/app/
     ├── create/                     new post / reel (photos up to 10, video up to 90 s)
     ├── reels/                      full-screen vertical video player
     ├── search/                     people, hashtags, products, recent and trending searches, tag pages
+    ├── seller/                     Seller hub (sales, 7-day chart, best sellers, low stock), listing editor
+    │                               with photos, inventory, orders to fulfil
     ├── shop/                       shop tab (categories, Drop of the Day, filters, sort), product page,
     │                               wishlist, cart, checkout + simulated Razorpay, orders + tracking, product tags
     ├── chat/                       chats list, new message, conversation (replies, attachments, quick replies)
@@ -137,6 +149,6 @@ branding/                           source logo and icon files (Play Store icon:
 | 2 | Feed & stories, create post, reels player, search, notifications, follow | ✅ |
 | 3 | Real-time chat (replies, attachments, quick vibes), push notifications | ✅ |
 | 4 | Shop: catalogue, filters, product page, wishlist, cart, checkout (Razorpay, simulated), orders, product tags | ✅ |
-| 5 | Seller mode: dashboard, listings, inventory, orders, analytics | next |
-| 6 | Aura engine, streaks, leaderboard, Mystery Box, memberships | |
+| 5 | Seller mode: dashboard, listings, inventory, orders, analytics | ✅ |
+| 6 | Aura engine, streaks, leaderboard, Mystery Box, memberships | next |
 | 7 | Near (people + stores), release hardening, Play Store listing | |

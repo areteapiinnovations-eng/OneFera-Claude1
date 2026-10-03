@@ -23,6 +23,10 @@ data class AppActions(
     val openOrders: () -> Unit = {},
     val openOrder: (orderId: String) -> Unit = {},
     val openWishlist: () -> Unit = {},
+    val openSellerHub: () -> Unit = {},
+    /** Opens the listing editor; an empty id creates a new listing. */
+    val editListing: (productId: String) -> Unit = {},
+    val openSellerOrder: (orderId: String) -> Unit = {},
     val back: () -> Unit = {},
 )
 

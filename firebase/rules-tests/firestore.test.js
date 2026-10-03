@@ -287,3 +287,65 @@ describe('shop', () => {
     await assertFails(setDoc(doc(db('alice'), 'posts/too-many'), post('alice', { products: [...tags, product] })));
   });
 });
+
+describe('seller mode', () => {
+  const listing = (sellerId, extra = {}) => ({
+    title: 'Hand-painted tote',
+    brand: 'Meera Makes',
+    description: 'One of a kind.',
+    category: 'Fashion',
+    price: 899,
+    mrp: 1299,
+    stock: 12,
+    images: ['https://x/tote.jpg'],
+    variants: [],
+    highlights: ['Handmade'],
+    keywords: ['ha', 'han'],
+    sellerId,
+    seller: summary(sellerId),
+    isDrop: false,
+    rating: 0,
+    ratingCount: 0,
+    soldCount: 0,
+    createdAt: serverTimestamp(),
+    ...extra,
+  });
+
+  async function accounts() {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'users/sam'), profile('sam', { accountMode: 'Seller' }));
+      await setDoc(doc(f, 'users/pat'), profile('pat'));
+    });
+  }
+
+  it('lets seller accounts list valid products as themselves', async () => {
+    await accounts();
+    await assertSucceeds(setDoc(doc(db('sam'), 'products/tote'), listing('sam')));
+    await assertFails(setDoc(doc(db('pat'), 'products/p1'), listing('pat')));
+    await assertFails(setDoc(doc(db('sam'), 'products/p2'), listing('pat')));
+    await assertFails(setDoc(doc(db('sam'), 'products/p3'), listing('sam', { soldCount: 500 })));
+    await assertFails(setDoc(doc(db('sam'), 'products/p4'), listing('sam', { price: 1 })));
+    await assertFails(setDoc(doc(db('sam'), 'products/p5'), listing('sam', { mrp: 100 })));
+    await assertFails(setDoc(doc(db('sam'), 'products/p6'), listing('sam', { isDrop: true })));
+    await assertFails(setDoc(doc(db('sam'), 'products/p7'), listing('sam', { images: [] })));
+  });
+
+  it('lets sellers edit stock and price but not sales counters or other sellers listings', async () => {
+    await accounts();
+    await seed((f) => setDoc(doc(f, 'products/tote'), listing('sam', { soldCount: 3 })));
+    await assertSucceeds(updateDoc(doc(db('sam'), 'products/tote'), { stock: 40, price: 799 }));
+    await assertFails(updateDoc(doc(db('sam'), 'products/tote'), { soldCount: 999 }));
+    await assertFails(updateDoc(doc(db('sam'), 'products/tote'), { stock: -1 }));
+    await assertFails(updateDoc(doc(db('pat'), 'products/tote'), { stock: 0 }));
+    await assertFails(deleteDoc(doc(db('pat'), 'products/tote')));
+    await assertSucceeds(deleteDoc(doc(db('sam'), 'products/tote')));
+  });
+
+  it('shows orders to the sellers in them, read-only', async () => {
+    await seed((f) => setDoc(doc(f, 'orders/o9'), { buyerId: 'pat', sellerIds: ['sam'], status: 'Placed', total: 899 }));
+    await assertSucceeds(getDoc(doc(db('sam'), 'orders/o9')));
+    await assertSucceeds(getDoc(doc(db('pat'), 'orders/o9')));
+    await assertFails(getDoc(doc(db('mallory'), 'orders/o9')));
+    await assertFails(updateDoc(doc(db('sam'), 'orders/o9'), { status: 'Delivered' }));
+  });
+});

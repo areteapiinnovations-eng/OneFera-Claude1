@@ -198,6 +198,9 @@ private fun ProfileContent(
                 }
             }
         }
+        if (profile.accountMode == AccountMode.Seller) {
+            item { SellerHubCard(onOpen = actions.openSellerHub) }
+        }
         item { AuraScoreCard(profile.auraPoints) }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -327,6 +330,7 @@ private fun ProfileMenuSheet(
         }
     }
     val isSeller = profile.accountMode == AccountMode.Seller
+    val actions = LocalAppActions.current
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(Modifier.padding(horizontal = 16.dp).navigationBarsPadding().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("PROFILE MENU", style = MaterialTheme.typography.labelMedium, color = OneFeraTheme.extras.muted, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
@@ -335,9 +339,33 @@ private fun ProfileMenuSheet(
             MenuRow(R.drawable.ic_settings, "Settings") { close(onOpenSettings) }
             MenuRow(R.drawable.ic_leaderboard, "Aura leaderboard", soon = true) { close { onComingSoon("The Aura leaderboard drops soon ⚡") } }
             MenuRow(R.drawable.ic_crown_filled, "Membership", soon = true) { close { onComingSoon("OneFera+ and Seller Pro are coming soon 💎") } }
+            if (isSeller) MenuRow(R.drawable.ic_storefront, "Seller hub") { close(actions.openSellerHub) }
             MenuRow(R.drawable.ic_swap, if (isSeller) "Switch to personal" else "Switch to seller") { close(onToggleAccountMode) }
             MenuRow(R.drawable.ic_logout, "Log out", tint = MaterialTheme.colorScheme.error) { close(onLogout) }
         }
+    }
+}
+
+/** Shortcut to the Seller hub, shown on your profile while in Seller mode. */
+@Composable
+private fun SellerHubCard(onOpen: () -> Unit) {
+    val extras = OneFeraTheme.extras
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(extras.gradientBrush())
+            .clickable(onClick = onOpen)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(R.drawable.ic_storefront), contentDescription = null, tint = extras.onGradient, modifier = Modifier.size(28.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Seller hub", style = MaterialTheme.typography.titleMedium, color = extras.onGradient)
+            Text("Listings, orders and sales in one place", style = MaterialTheme.typography.bodySmall, color = extras.onGradient.copy(alpha = 0.85f))
+        }
+        Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = extras.onGradient, modifier = Modifier.size(22.dp))
     }
 }
 

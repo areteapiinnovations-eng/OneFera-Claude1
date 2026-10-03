@@ -36,6 +36,9 @@ import com.onefera.app.feature.main.MainScreen
 import com.onefera.app.feature.onboarding.OnboardingScreen
 import com.onefera.app.feature.profile.EditProfileScreen
 import com.onefera.app.feature.settings.SettingsScreen
+import com.onefera.app.feature.seller.ListingEditorScreen
+import com.onefera.app.feature.seller.SellerHubScreen
+import com.onefera.app.feature.seller.SellerOrderScreen
 import com.onefera.app.feature.shop.CartScreen
 import com.onefera.app.feature.shop.CheckoutScreen
 import com.onefera.app.feature.shop.OrderScreen
@@ -64,6 +67,7 @@ fun OneFeraNavHost(
             "notifications" -> navController.navigate(NotificationsRoute)
             "order" -> if (value.isNotEmpty()) navController.navigate(OrderRoute(value))
             "product" -> if (value.isNotEmpty()) navController.navigate(ProductRoute(value))
+            "sellerorder" -> if (value.isNotEmpty()) navController.navigate(SellerOrderRoute(value))
         }
         deepLinks?.consumed()
     }
@@ -95,6 +99,9 @@ fun OneFeraNavHost(
             openOrders = { navController.navigate(OrdersRoute) { launchSingleTop = true } },
             openOrder = { navController.navigate(OrderRoute(it)) },
             openWishlist = { navController.navigate(WishlistRoute) { launchSingleTop = true } },
+            openSellerHub = { navController.navigate(SellerHubRoute) { launchSingleTop = true } },
+            editListing = { navController.navigate(ListingEditorRoute(it)) },
+            openSellerOrder = { navController.navigate(SellerOrderRoute(it)) },
             back = { navController.popBackStack() },
         )
     }
@@ -179,6 +186,12 @@ fun OneFeraNavHost(
         composable<OrdersRoute> { OrdersScreen(onBack = { navController.popBackStack() }) }
         composable<OrderRoute> { OrderScreen(onBack = { navController.popBackStack() }) }
         composable<WishlistRoute> { WishlistScreen(onBack = { navController.popBackStack() }) }
+        composable<SellerHubRoute> { SellerHubScreen(onBack = { navController.popBackStack() }) }
+        composable<ListingEditorRoute>(
+            enterTransition = { slideInVertically(tween(320)) { it / 3 } + fadeIn(tween(320)) },
+            popExitTransition = { slideOutVertically(tween(280)) { it / 3 } + fadeOut(tween(280)) },
+        ) { ListingEditorScreen(onBack = { navController.popBackStack() }) }
+        composable<SellerOrderRoute> { SellerOrderScreen(onBack = { navController.popBackStack() }) }
         composable<NewChatRoute> {
             NewChatScreen(
                 onBack = { navController.popBackStack() },

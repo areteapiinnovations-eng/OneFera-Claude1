@@ -138,6 +138,25 @@ if [ -n "$IME" ] && [ "$IME" != "null" ]; then
   tap_text "Pay ₹*";                    shot 22-order-placed 8
 fi
 
+# Back out of pushed screens until the bottom tab bar ("Reels" tab) is visible again.
+back_to_tabs() {
+  for _ in 1 2 3 4 5; do
+    timeout 20 adb exec-out uiautomator dump /dev/tty 2>/dev/null > /tmp/ui.xml || true
+    grep -q 'text="Reels"' /tmp/ui.xml && return 0
+    timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 2
+  done
+}
+
+# Seller mode: switch the account to Seller and open the hub and the listing editor.
+back_to_tabs
+tap_text "You";                       sleep 2
+tap_text "Profile menu";              sleep 2
+tap_text "Switch to seller";          sleep 3
+tap_text "Profile menu";              sleep 2
+tap_text "Seller hub";                shot 23-seller-hub 4
+tap_text "New listing";               shot 24-listing-editor 3
+timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 2
+
 if ! timeout 10 adb shell pidof "$PKG" >/dev/null; then
   echo "::error::App process is not running at the end of the smoke test"
   tail -100 "$OUT/logcat.txt"

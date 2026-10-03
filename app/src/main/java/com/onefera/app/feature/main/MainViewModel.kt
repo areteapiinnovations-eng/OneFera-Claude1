@@ -104,7 +104,7 @@ class MainViewModel @Inject constructor(
             users.setAccountMode(uid, next)
                 .onSuccess {
                     _messages.emit(
-                        if (next == AccountMode.Seller) "Switched to Seller account 🏪 Seller tools are coming in the next build."
+                        if (next == AccountMode.Seller) "Switched to Seller account 🏪 Open the Seller hub from your profile."
                         else "Switched back to your personal account ✨",
                     )
                 }

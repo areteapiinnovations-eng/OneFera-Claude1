@@ -83,7 +83,7 @@ import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 
-private fun formatDate(millis: Long, pattern: String = "d MMM, h:mm a"): String =
+internal fun formatDate(millis: Long, pattern: String = "d MMM, h:mm a"): String =
     SimpleDateFormat(pattern, Locale.getDefault()).format(Date(millis))
 
 // region Orders list
@@ -151,7 +151,7 @@ private fun OrderRow(order: Order, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StatusBadge(status: OrderStatus) {
+internal fun StatusBadge(status: OrderStatus) {
     val color = when (status) {
         OrderStatus.Delivered -> StatusColors.Success
         OrderStatus.Cancelled -> StatusColors.Error
@@ -306,7 +306,7 @@ private fun PlacedBanner(order: Order) {
 }
 
 @Composable
-private fun Timeline(order: Order) {
+internal fun Timeline(order: Order) {
     val extras = OneFeraTheme.extras
     val steps = if (order.status == OrderStatus.Cancelled) {
         OrderStatus.timeline.filter { order.reachedAt(it) != null } + OrderStatus.Cancelled
