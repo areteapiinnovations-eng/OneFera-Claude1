@@ -66,9 +66,9 @@ jobs:
       fail-fast: false
       matrix:
         device:
-          - { api: 34, target: google_apis }
-          - { api: 33, target: aosp_atd }
           - { api: 30, target: google_apis }
+          - { api: 34, target: aosp_atd }
+          - { api: 35, target: google_apis }
     name: smoke-test (API ${{ matrix.device.api }} ${{ matrix.device.target }})
     steps:
       - uses: actions/checkout@v4
