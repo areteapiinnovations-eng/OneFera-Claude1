@@ -153,7 +153,6 @@ class ChatViewModel @Inject constructor(
         chat.unsend(conversationId, message.id).onFailure { _messages.emit(it.message ?: "Couldn't unsend") }
     }
 
-    fun comingSoon(feature: String) = viewModelScope.launch { _messages.emit("$feature calls are coming soon 📞") }
 
     override fun onCleared() {
         if (active.id == conversationId) active.id = null

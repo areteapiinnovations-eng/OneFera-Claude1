@@ -178,11 +178,9 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
                         )
                     }
                 }
-                IconButton(onClick = { viewModel.comingSoon("Voice") }) { Icon(painterResource(R.drawable.ic_call), contentDescription = "Voice call") }
                 Box {
                     IconButton(onClick = { chatMenu = true }) { Icon(painterResource(R.drawable.ic_more), contentDescription = "Chat options") }
                     DropdownMenu(expanded = chatMenu, onDismissRequest = { chatMenu = false }) {
-                        DropdownMenuItem(text = { Text("Video call") }, onClick = { chatMenu = false; viewModel.comingSoon("Video") })
                         if (other != null) {
                             DropdownMenuItem(text = { Text("Report") }, onClick = { chatMenu = false; reportingChat = true })
                             DropdownMenuItem(text = { Text("Block", color = MaterialTheme.colorScheme.error) }, onClick = { chatMenu = false; blockingChat = true })

@@ -11,6 +11,16 @@ plugins {
 // Firebase is optional at build time: drop app/google-services.json in place to switch the app
 // from built-in demo data to the live backend. Without it the app still builds and runs.
 val hasFirebaseConfig = file("google-services.json").exists()
+
+// Production builds must talk to the live backend. Pass -Ponefera.production=true (or set it in
+// gradle.properties) when building the Play Store release: the build then fails fast if Firebase
+// config or release signing is missing, instead of shipping the on-device demo mode.
+if (providers.gradleProperty("onefera.production").orNull == "true") {
+    check(hasFirebaseConfig) { "Production build: add app/google-services.json (see README)." }
+    check(rootProject.file("keystore.properties").exists()) { "Production build: add keystore.properties for release signing (see README)." }
+} else if (!hasFirebaseConfig) {
+    logger.warn("OneFera: app/google-services.json not found, so this build runs in DEMO mode (on-device data only).")
+}
 if (hasFirebaseConfig) {
     apply(plugin = "com.google.gms.google-services")
 }
@@ -31,7 +41,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

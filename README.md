@@ -119,8 +119,15 @@ The output is `app/build/outputs/apk/debug/app-debug.apk`.
    ./gradlew bundleRelease     # app/build/outputs/bundle/release/app-release.aab
    ./gradlew assembleRelease   # app/build/outputs/apk/release/app-release.apk
    ```
-3. Release builds are shrunk and optimised with R8.
-4. Upload the `.aab` to Google Play Console.
+3. For the real Play Store build, add `-Ponefera.production=true`:
+   ```bash
+   ./gradlew bundleRelease -Ponefera.production=true
+   ```
+   The build then stops with a clear error if `google-services.json` or `keystore.properties` is missing, so a demo-mode build can't be shipped by accident. Before each release, bump `versionCode` (and `versionName`) in `app/build.gradle.kts`.
+4. Release builds are shrunk and optimised with R8.
+5. Upload the `.aab` to Google Play Console.
+
+**Requirements:** a recent stable Android Studio that supports AGP 9.4, JDK 21, and Android SDK Platform 37. Android Studio offers to install any missing SDK parts when the project opens.
 
 Every push to GitHub runs the **Android CI** workflow (`.github/workflows/android.yml`). It builds the debug APK and release AAB, runs the unit tests and lint, and attaches the APK and AAB to the run as downloadable artifacts.
 

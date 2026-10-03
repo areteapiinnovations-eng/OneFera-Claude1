@@ -112,7 +112,7 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                         onCheckedChange = viewModel::setPrivate,
                     )
                 }
-                item { InfoRow(icon = R.drawable.ic_language, title = "Language", subtitle = "English (India) · more languages soon") }
+                item { InfoRow(icon = R.drawable.ic_language, title = "Language", subtitle = "English (India)") }
                 item { SectionLabel("ACCOUNT") }
                 item {
                     InfoRow(
