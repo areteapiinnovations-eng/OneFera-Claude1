@@ -240,3 +240,50 @@ describe('chat', () => {
     await assertSucceeds(updateDoc(doc(db('alice'), `conversations/${cid}/messages/m1`), { unsent: true, text: '', attachment: null }));
   });
 });
+
+describe('shop', () => {
+  const product = { id: 'p-1', title: 'Neon Kicks', brand: 'OneFera', imageUrl: null, price: 1999, mrp: 2999, sellerId: '' };
+  const cartLine = (extra = {}) => ({ product, variant: '', quantity: 1, addedAt: serverTimestamp(), ...extra });
+  const address = { name: 'Asha', phone: '9876543210', line1: '12 MG Road', line2: '', city: 'Pune', state: 'MH', pincode: '411001' };
+
+  it('lets anyone signed in browse products but nobody write them', async () => {
+    await seed((f) => setDoc(doc(f, 'products/p-1'), { title: 'Neon Kicks', price: 1999, stock: 5 }));
+    await assertSucceeds(getDoc(doc(db('alice'), 'products/p-1')));
+    await assertFails(getDoc(doc(db(null), 'products/p-1')));
+    await assertFails(updateDoc(doc(db('alice'), 'products/p-1'), { price: 1 }));
+    await assertFails(setDoc(doc(db('alice'), 'products/p-2'), { title: 'Free stuff', price: 0 }));
+  });
+
+  it('keeps carts and wishlists private and sane', async () => {
+    await assertSucceeds(setDoc(doc(db('alice'), 'users/alice/cart/p-1'), cartLine()));
+    await assertSucceeds(setDoc(doc(db('alice'), 'users/alice/cart/p-1__uk-8'), cartLine({ variant: 'UK 8' })));
+    await assertFails(setDoc(doc(db('alice'), 'users/alice/cart/p-1'), cartLine({ quantity: 50 })));
+    await assertFails(setDoc(doc(db('alice'), 'users/alice/cart/other'), cartLine()));
+    await assertFails(setDoc(doc(db('alice'), 'users/alice/cart/p-1'), cartLine({ discount: 100 })));
+    await assertFails(setDoc(doc(db('bob'), 'users/alice/cart/p-1'), cartLine()));
+    await assertFails(getDoc(doc(db('bob'), 'users/alice/cart/p-1')));
+    await assertSucceeds(setDoc(doc(db('alice'), 'users/alice/wishlist/p-1'), { addedAt: serverTimestamp() }));
+    await assertFails(getDoc(doc(db('bob'), 'users/alice/wishlist/p-1')));
+  });
+
+  it('validates saved addresses', async () => {
+    await assertSucceeds(setDoc(doc(db('alice'), 'users/alice/addresses/default'), address));
+    await assertFails(setDoc(doc(db('alice'), 'users/alice/addresses/default'), { ...address, phone: '123' }));
+    await assertFails(setDoc(doc(db('alice'), 'users/alice/addresses/default'), { ...address, pincode: 'ABCDEF' }));
+    await assertFails(getDoc(doc(db('bob'), 'users/alice/addresses/default')));
+  });
+
+  it('only shows buyers their own orders and never lets clients write them', async () => {
+    await seed((f) => setDoc(doc(f, 'orders/o1'), { buyerId: 'alice', status: 'Placed', total: 1999 }));
+    await assertSucceeds(getDoc(doc(db('alice'), 'orders/o1')));
+    await assertFails(getDoc(doc(db('bob'), 'orders/o1')));
+    await assertFails(updateDoc(doc(db('alice'), 'orders/o1'), { status: 'Delivered' }));
+    await assertFails(setDoc(doc(db('alice'), 'orders/o2'), { buyerId: 'alice', status: 'Placed', total: 1 }));
+  });
+
+  it('allows up to five product tags on a post', async () => {
+    const tags = Array.from({ length: 5 }, (_, i) => ({ ...product, id: `p-${i}` }));
+    await assertSucceeds(setDoc(doc(db('alice'), 'posts/tagged'), post('alice', { products: tags })));
+    await assertFails(setDoc(doc(db('alice'), 'posts/too-many'), post('alice', { products: [...tags, product] })));
+  });
+});

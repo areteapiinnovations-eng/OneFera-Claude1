@@ -173,6 +173,7 @@ class FirestorePostRepository @Inject constructor(
                 soundName = if (draft.isVideo) "Original audio · ${me.username}" else "",
                 createdAt = System.currentTimeMillis(),
                 visibility = if (me.isPrivate) PostVisibility.FOLLOWERS else PostVisibility.PUBLIC,
+                products = draft.products.take(Post.MAX_PRODUCT_TAGS),
             )
             ref.set(
                 mapOf(
@@ -188,6 +189,7 @@ class FirestorePostRepository @Inject constructor(
                     "commentCount" to 0,
                     "shareCount" to 0,
                     "visibility" to post.visibility,
+                    "products" to post.products.map { it.toMap() },
                     "createdAt" to FieldValue.serverTimestamp(),
                 ),
             ).await()

@@ -19,3 +19,9 @@ import kotlinx.serialization.Serializable
 @Serializable data class TagRoute(val tag: String)
 @Serializable data class ChatRoute(val conversationId: String)
 @Serializable data object NewChatRoute
+@Serializable data class ProductRoute(val productId: String)
+@Serializable data object CartRoute
+@Serializable data object CheckoutRoute
+@Serializable data object OrdersRoute
+@Serializable data class OrderRoute(val orderId: String, val justPlaced: Boolean = false)
+@Serializable data object WishlistRoute

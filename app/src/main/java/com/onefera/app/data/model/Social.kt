@@ -60,10 +60,16 @@ data class Post(
     val shareCount: Int = 0,
     val createdAt: Long = 0L,
     val visibility: String = PostVisibility.PUBLIC,
+    /** Products tagged on the post ("tap to buy"), at most [MAX_PRODUCT_TAGS]. */
+    val products: List<ProductSummary> = emptyList(),
 ) {
     val cover: PostMedia? get() = media.firstOrNull()
     val coverImageUrl: String? get() = cover?.let { it.thumbnailUrl ?: it.url.takeIf { _ -> it.type == MediaType.Image } }
     val isVideo: Boolean get() = cover?.type == MediaType.Video
+
+    companion object {
+        const val MAX_PRODUCT_TAGS = 5
+    }
 }
 
 @Serializable
@@ -113,6 +119,7 @@ data class PostDraft(
     val mediaUris: List<android.net.Uri>,
     val isVideo: Boolean,
     val asReel: Boolean,
+    val products: List<ProductSummary> = emptyList(),
 )
 
 /** Extracts #hashtags (lower-case, without '#'), max 30. */

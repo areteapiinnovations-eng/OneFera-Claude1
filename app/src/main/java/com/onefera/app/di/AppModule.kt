@@ -11,16 +11,19 @@ import com.onefera.app.data.chat.FirestoreChatRepository
 import com.onefera.app.data.demo.DemoChatRepository
 import com.onefera.app.data.demo.DemoNotificationRepository
 import com.onefera.app.data.demo.DemoPostRepository
+import com.onefera.app.data.demo.DemoShopRepository
 import com.onefera.app.data.demo.DemoSocialRepository
 import com.onefera.app.data.demo.DemoStoryRepository
 import com.onefera.app.data.firebase.FirestoreNotificationRepository
 import com.onefera.app.data.firebase.FirestorePostRepository
+import com.onefera.app.data.firebase.FirestoreShopRepository
 import com.onefera.app.data.firebase.FirestoreSocialRepository
 import com.onefera.app.data.firebase.FirestoreStoryRepository
 import com.onefera.app.data.social.NotificationRepository
 import com.onefera.app.data.social.PostRepository
 import com.onefera.app.data.social.SocialRepository
 import com.onefera.app.data.social.StoryRepository
+import com.onefera.app.data.shop.ShopRepository
 import com.onefera.app.data.user.FirestoreUserRepository
 import com.onefera.app.data.user.UserRepository
 import dagger.Module
@@ -98,4 +101,12 @@ object AppModule {
         firestore: Provider<FirestoreChatRepository>,
         demo: Provider<DemoChatRepository>,
     ): ChatRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    @Provides
+    @Singleton
+    fun provideShopRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestoreShopRepository>,
+        demo: Provider<DemoShopRepository>,
+    ): ShopRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
 }

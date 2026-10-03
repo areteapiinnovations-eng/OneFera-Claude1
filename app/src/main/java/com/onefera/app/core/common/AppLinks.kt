@@ -6,6 +6,7 @@ object AppLinks {
     fun profile(username: String) = "$WEB_BASE/@$username"
     fun post(postId: String) = "$WEB_BASE/p/$postId"
     fun tag(tag: String) = "$WEB_BASE/tag/$tag"
+    fun product(productId: String) = "$WEB_BASE/shop/$productId"
     const val TERMS = "$WEB_BASE/terms"
     const val PRIVACY = "$WEB_BASE/privacy"
     const val GUIDELINES = "$WEB_BASE/guidelines"

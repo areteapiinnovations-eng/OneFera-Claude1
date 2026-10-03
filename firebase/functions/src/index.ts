@@ -8,6 +8,7 @@
  *  - follows / requests    -> follower counters, notifications
  *  - chat messages         -> conversation preview, unread counts, push
  *  - hourly                -> expired stories removed
+ *  - shop (callable)       -> checkout, payment confirmation, cancellation; simulated courier
  */
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
@@ -15,6 +16,8 @@ import { getMessaging } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { onDocumentCreated, onDocumentDeleted } from "firebase-functions/v2/firestore";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 
@@ -258,4 +261,246 @@ export const cleanUpExpiredStories = onSchedule("every 60 minutes", async () => 
     }),
   );
   logger.info(`Removed ${expired.size} expired stories`);
+});
+
+// ---------------------------------------------------------------- shop
+
+/**
+ * Payments run in "simulated" mode until live Razorpay keys are configured in
+ * functions/.env (PAYMENTS_MODE=live, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET). Prices, stock
+ * and payment verification are always decided here, never on the device.
+ */
+const FREE_DELIVERY_ABOVE = 499;
+const DELIVERY_FEE = 49;
+const MAX_QUANTITY = 10;
+const PAYMENT_METHODS = ["Upi", "Card", "NetBanking", "Cod"];
+const ACTIVE_STEPS = ["Placed", "Packed", "Shipped", "OutForDelivery"] as const;
+const DAY = 24 * 60 * 60 * 1000;
+
+function paymentsLive(): boolean {
+  return process.env.PAYMENTS_MODE === "live" && !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET;
+}
+
+function requireUid(auth: { uid: string } | undefined): string {
+  if (!auth) throw new HttpsError("unauthenticated", "Please log in again.");
+  return auth.uid;
+}
+
+interface Address { name: string; phone: string; line1: string; line2: string; city: string; state: string; pincode: string }
+
+function validAddress(a: unknown): Address {
+  const x = (a ?? {}) as Record<string, unknown>;
+  const str = (k: string, max: number) => (typeof x[k] === "string" ? (x[k] as string).trim().slice(0, max) : "");
+  const address: Address = {
+    name: str("name", 60),
+    phone: str("phone", 10),
+    line1: str("line1", 120),
+    line2: str("line2", 120),
+    city: str("city", 40),
+    state: str("state", 40),
+    pincode: str("pincode", 6),
+  };
+  if (!address.name || !/^[0-9]{10}$/.test(address.phone) || !address.line1 || !address.city || !address.state || !/^[0-9]{6}$/.test(address.pincode)) {
+    throw new HttpsError("invalid-argument", "Please complete your delivery address.");
+  }
+  return address;
+}
+
+interface OrderLine {
+  product: { id: string; title: string; brand: string; imageUrl: string | null; price: number; mrp: number; sellerId: string };
+  variant: string;
+  quantity: number;
+  price: number;
+}
+
+export const startCheckout = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const address = validAddress(request.data?.address);
+  const method = String(request.data?.method ?? "");
+  if (!PAYMENT_METHODS.includes(method)) throw new HttpsError("invalid-argument", "Choose a payment method.");
+
+  const cart = await db.collection("users").doc(uid).collection("cart").get();
+  if (cart.empty) throw new HttpsError("failed-precondition", "Your cart is empty.");
+
+  // Re-price every line from the catalogue.
+  const lines: OrderLine[] = [];
+  for (const line of cart.docs) {
+    const productId = line.get("product.id") as string;
+    const quantity = Math.max(1, Math.min(MAX_QUANTITY, Number(line.get("quantity")) || 1));
+    const variant = String(line.get("variant") ?? "");
+    const product = await db.collection("products").doc(productId).get();
+    if (!product.exists) throw new HttpsError("failed-precondition", `${line.get("product.title") ?? "An item"} is no longer available.`);
+    const p = product.data()!;
+    const variants = (p.variants as string[] | undefined) ?? [];
+    if (variants.length > 0 && !variants.includes(variant)) throw new HttpsError("failed-precondition", `Pick an option for ${p.title}.`);
+    if ((p.stock ?? 0) < quantity) throw new HttpsError("failed-precondition", `Only ${p.stock ?? 0} left of ${p.title}.`);
+    lines.push({
+      product: {
+        id: product.id,
+        title: p.title ?? "",
+        brand: p.brand ?? "",
+        imageUrl: (p.images as string[] | undefined)?.[0] ?? null,
+        price: p.price ?? 0,
+        mrp: p.mrp ?? 0,
+        sellerId: p.sellerId ?? "",
+      },
+      variant,
+      quantity,
+      price: p.price ?? 0,
+    });
+  }
+  const subtotal = lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+  const deliveryFee = subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FEE;
+  const total = subtotal + deliveryFee;
+
+  const ref = db.collection("orders").doc();
+  const live = paymentsLive() && method !== "Cod";
+  let razorpayOrderId = "";
+  if (live) {
+    const auth = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString("base64");
+    const res = await fetch("https://api.razorpay.com/v1/orders", {
+      method: "POST",
+      headers: { "Authorization": `Basic ${auth}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: total * 100, currency: "INR", receipt: ref.id }),
+    });
+    if (!res.ok) {
+      logger.error("Razorpay order failed", res.status, await res.text());
+      throw new HttpsError("unavailable", "Payments are busy right now. Please try again.");
+    }
+    razorpayOrderId = ((await res.json()) as { id: string }).id;
+  }
+
+  await ref.set({
+    buyerId: uid,
+    items: lines,
+    sellerIds: [...new Set(lines.map((l) => l.product.sellerId).filter((s) => s))],
+    subtotal,
+    deliveryFee,
+    total,
+    address,
+    paymentMethod: method,
+    paymentId: "",
+    razorpayOrderId,
+    status: "PendingPayment",
+    history: {},
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await db.collection("users").doc(uid).collection("addresses").doc("default").set(address);
+  return { orderId: ref.id, amount: total, razorpayOrderId, keyId: live ? process.env.RAZORPAY_KEY_ID : "", simulated: !live };
+});
+
+function verifyRazorpaySignature(orderId: string, paymentId: string, signature: string): boolean {
+  const expected = createHmac("sha256", process.env.RAZORPAY_KEY_SECRET ?? "").update(`${orderId}|${paymentId}`).digest("hex");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(String(signature));
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export const confirmPayment = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const orderId = String(request.data?.orderId ?? "");
+  const paymentId = String(request.data?.paymentId ?? "").slice(0, 80);
+  const signature = String(request.data?.signature ?? "");
+  if (!orderId || !paymentId) throw new HttpsError("invalid-argument", "Missing payment details.");
+  const ref = db.collection("orders").doc(orderId);
+
+  const order = await ref.get();
+  if (!order.exists || order.get("buyerId") !== uid) throw new HttpsError("not-found", "We couldn't find that order.");
+  if (order.get("status") !== "PendingPayment") return { status: order.get("status") };
+
+  const method = order.get("paymentMethod") as string;
+  const razorpayOrderId = order.get("razorpayOrderId") as string;
+  if (method !== "Cod") {
+    if (razorpayOrderId) {
+      if (!verifyRazorpaySignature(razorpayOrderId, paymentId, signature)) {
+        throw new HttpsError("permission-denied", "We couldn't verify this payment. If money was taken it will be refunded.");
+      }
+    } else if (paymentsLive() || !paymentId.startsWith("pay_sim_")) {
+      throw new HttpsError("permission-denied", "We couldn't verify this payment.");
+    }
+  }
+
+  const lines = (order.get("items") as OrderLine[]) ?? [];
+  const now = Date.now();
+  await db.runTransaction(async (tx) => {
+    const fresh = await tx.get(ref);
+    if (fresh.get("status") !== "PendingPayment") return;
+    const products = await Promise.all(lines.map((l) => tx.get(db.collection("products").doc(l.product.id))));
+    products.forEach((p, i) => {
+      if (!p.exists || (p.get("stock") ?? 0) < lines[i].quantity) {
+        throw new HttpsError("failed-precondition", `Sorry, ${lines[i].product.title} just sold out. Any payment will be refunded.`);
+      }
+    });
+    products.forEach((p, i) => {
+      tx.update(p.ref, { stock: FieldValue.increment(-lines[i].quantity), soldCount: FieldValue.increment(lines[i].quantity) });
+    });
+    tx.update(ref, {
+      status: "Placed",
+      paymentId,
+      "history.Placed": Timestamp.fromMillis(now),
+      estimatedDelivery: now + 3 * DAY,
+    });
+  });
+
+  // Empty the cart (only the lines that were bought).
+  const cart = await db.collection("users").doc(uid).collection("cart").get();
+  const bought = new Set(lines.map((l) => l.product.id));
+  await Promise.all(cart.docs.filter((d) => bought.has(d.get("product.id"))).map((d) => d.ref.delete()));
+
+  await sendPush(uid, "Order placed 🎉", `We've got your order of ₹${order.get("total")}. We'll keep you posted!`, { open: `order:${orderId}`, type: "Order" });
+  return { status: "Placed" };
+});
+
+export const cancelOrder = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const orderId = String(request.data?.orderId ?? "");
+  const ref = db.collection("orders").doc(orderId);
+  await db.runTransaction(async (tx) => {
+    const order = await tx.get(ref);
+    if (!order.exists || order.get("buyerId") !== uid) throw new HttpsError("not-found", "Order not found.");
+    if (!["Placed", "Packed"].includes(order.get("status"))) {
+      throw new HttpsError("failed-precondition", "This order has already shipped, so it can't be cancelled.");
+    }
+    const lines = (order.get("items") as OrderLine[]) ?? [];
+    for (const l of lines) {
+      tx.update(db.collection("products").doc(l.product.id), {
+        stock: FieldValue.increment(l.quantity),
+        soldCount: FieldValue.increment(-l.quantity),
+      });
+    }
+    tx.update(ref, { "status": "Cancelled", "history.Cancelled": Timestamp.now() });
+  });
+  return { status: "Cancelled" };
+});
+
+/**
+ * Simulated courier: while payments are simulated, paid orders move through the delivery
+ * steps on their own so tracking can be tried end to end. Unpaid checkouts expire after a day.
+ * With live payments, sellers will advance orders from Seller mode instead.
+ */
+export const advanceSimulatedOrders = onSchedule("every 15 minutes", async () => {
+  const now = Date.now();
+  const expired = await db.collection("orders").where("status", "==", "PendingPayment")
+    .where("createdAt", "<=", Timestamp.fromMillis(now - DAY)).limit(200).get();
+  await Promise.all(expired.docs.map((d) => d.ref.delete()));
+  if (paymentsLive()) return;
+
+  // Minimum age (since placed) before each next step.
+  const after: Record<string, { next: string; age: number; title: string }> = {
+    Placed: { next: "Packed", age: 15 * 60 * 1000, title: "Packed and ready 📦" },
+    Packed: { next: "Shipped", age: 2 * 60 * 60 * 1000, title: "Your order has shipped 🚚" },
+    Shipped: { next: "OutForDelivery", age: 24 * 60 * 60 * 1000, title: "Out for delivery today 🛵" },
+    OutForDelivery: { next: "Delivered", age: 30 * 60 * 60 * 1000, title: "Delivered! Enjoy ✨" },
+  };
+  for (const status of ACTIVE_STEPS) {
+    const step = after[status];
+    const due = await db.collection("orders").where("status", "==", status)
+      .where("createdAt", "<=", Timestamp.fromMillis(now - step.age)).limit(200).get();
+    await Promise.all(
+      due.docs.map(async (d) => {
+        await d.ref.update({ "status": step.next, [`history.${step.next}`]: Timestamp.now() });
+        await sendPush(d.get("buyerId"), step.title, `Order ${d.id}`, { open: `order:${d.id}`, type: "Order" });
+      }),
+    );
+  }
 });

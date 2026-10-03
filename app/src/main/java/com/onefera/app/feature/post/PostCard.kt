@@ -58,6 +58,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
+import com.onefera.app.feature.shop.ProductTagChip
+import androidx.compose.foundation.layout.widthIn
 import com.onefera.app.R
 import com.onefera.app.core.common.compactCount
 import com.onefera.app.core.common.timeAgo
@@ -106,6 +108,9 @@ fun PostCard(
         if (post.media.isNotEmpty()) {
             PostMediaView(post, activePlayer, onDoubleTap = callbacks.onDoubleTapLike, onPlayVideo = callbacks.onPlayVideo)
         }
+        if (post.products.isNotEmpty()) {
+            ShopThePost(post, onOpen = actions.openProduct)
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             LikeButton(liked = item.liked, onClick = callbacks.onLike)
             IconButton(onClick = callbacks.onComments) {
@@ -143,6 +148,21 @@ fun PostCard(
                 )
             }
             Text(timeAgo(post.createdAt), style = MaterialTheme.typography.labelSmall, color = extras.muted)
+        }
+    }
+}
+
+/** "Shop this post": tagged products, one tap from the product page. */
+@Composable
+private fun ShopThePost(post: Post, onOpen: (String) -> Unit) {
+    androidx.compose.foundation.lazy.LazyRow(
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(top = 10.dp),
+    ) {
+        items(post.products.size) { i ->
+            val product = post.products[i]
+            ProductTagChip(product, onClick = { onOpen(product.id) }, modifier = Modifier.widthIn(max = 280.dp))
         }
     }
 }

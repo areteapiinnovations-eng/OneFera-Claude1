@@ -45,6 +45,7 @@ class DemoSocialBackend @Inject constructor(
     @ApplicationContext private val context: Context,
     @ApplicationScope private val scope: CoroutineScope,
     private val accounts: DemoBackend,
+    private val catalog: DemoCatalog,
 ) {
     @Serializable
     data class SocialState(
@@ -75,7 +76,7 @@ class DemoSocialBackend @Inject constructor(
             var s = if (saved == null || saved.seedVersion < DemoSeed.VERSION) {
                 SocialState(
                     seedVersion = DemoSeed.VERSION,
-                    posts = DemoSeed.posts(now) + saved?.posts.orEmpty().filterNot { it.id.startsWith("seed-") },
+                    posts = DemoSeed.posts(now, catalog.byId) + saved?.posts.orEmpty().filterNot { it.id.startsWith("seed-") },
                     comments = DemoSeed.comments(now),
                     stories = DemoSeed.stories(now),
                 )

@@ -34,7 +34,27 @@ Requirements: a current Android Studio with its bundled JDK 17+. Devices need An
    firebase deploy --only firestore:rules,firestore:indexes,storage,functions
    ```
 6. Rebuild. The demo-mode banner disappears and data is stored live in Firestore.
-7. **Push notifications** work once `google-services.json` is in place: the app registers each device's FCM token and asks for the notification permission on Android 13+. Tapping a notification opens the matching chat, post or profile.
+7. **Push notifications** work once `google-services.json` is in place: the app registers each device's FCM token and asks for the notification permission on Android 13+. Tapping a notification opens the matching chat, post, profile or order.
+8. **Shop catalogue:** load the sample products (the same 100 items demo mode uses) into Firestore. Use a service-account key from *Project settings → Service accounts*:
+   ```bash
+   cd firebase/functions && npm ci
+   GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json npm run seed -- --project <your-project-id>
+   ```
+   Re-running it refreshes titles, prices and images, and keeps live stock and sales counts. The sample product photos are hosted on the free DummyJSON test-data CDN. Replace them with real listings before launch.
+
+### Payments (Razorpay)
+
+Checkout runs in **simulated mode** by default. The full flow works end to end: the server re-prices the cart, the payment sheet appears, the order is confirmed and stock is reduced. No real money moves.
+
+- The server decides prices, stock and payment verification. The app never sends a price.
+- Simulated orders move through *Packed → Shipped → Out for delivery → Delivered* on their own, with a push at each step, so tracking can be tried. In demo mode this takes about 10 minutes; on Firebase, about a day.
+- Live mode is already supported on the server. To switch it on, add `firebase/functions/.env`:
+  ```
+  PAYMENTS_MODE=live
+  RAZORPAY_KEY_ID=rzp_live_xxx
+  RAZORPAY_KEY_SECRET=xxx
+  ```
+  The server then creates Razorpay orders and verifies each payment's HMAC signature. The Android Razorpay SDK hand-off arrives with release hardening (Phase 7). Until then, a build pointed at a live backend offers cash on delivery only.
 
 ### What the backend does
 
@@ -42,8 +62,9 @@ Requirements: a current Android Studio with its bundled JDK 17+. Devices need An
 |---|---|---|
 | Firestore rules | `firebase/firestore.rules` | Who can read and write what. Clients can't change counters, Aura or other people's notifications. Followers-only posts are hidden from non-followers. |
 | Storage rules | `firebase/storage.rules` | Avatars (≤ 5 MB), post photos (≤ 15 MB) and videos (≤ 100 MB), stories |
-| Indexes | `firebase/firestore.indexes.json` | Feed, reels, profile grid, hashtag and notification queries |
-| Cloud Functions | `firebase/functions` (TypeScript) | Like, comment, follower and post counters; Aura points; notifications plus push; chat previews, unread counts and message push; hashtag counts; media and expired-story cleanup |
+| Indexes | `firebase/firestore.indexes.json` | Feed, reels, profile grid, hashtag, notification and order queries |
+| Cloud Functions | `firebase/functions` (TypeScript) | Like, comment, follower and post counters; Aura points; notifications plus push; chat previews, unread counts and message push; hashtag counts; media and expired-story cleanup; checkout (`startCheckout`, `confirmPayment`, `cancelOrder`) and the simulated courier |
+| Shop data | `products`, `orders`, `users/{uid}/cart, wishlist, addresses` | Anyone signed in can read the catalogue, and only admins or functions can write it. Carts, wishlists and addresses are private. Orders are readable by the buyer and written only by functions. |
 | Rules tests | `firebase/rules-tests` | Run with `npm ci && npm test` (starts the Firestore emulator). These also run in CI. |
 
 ## Build an APK / App Bundle (AAB)
@@ -73,7 +94,7 @@ app/src/main/java/com/onefera/app/
 │   ├── designsystem/component/    logo, aurora background, buttons, fields, cards, avatar, chips
 │   └── common/                    validators, links
 ├── data/
-│   ├── model/                     UserProfile, AuraGrade, …
+│   ├── model/                     UserProfile, AuraGrade, Post, Product, Order, …
 │   ├── auth/  user/               repository interfaces + Firebase implementations
 │   ├── demo/                      offline demo backend (used when Firebase isn't configured)
 │   ├── settings/                  DataStore preferences (theme, onboarding, notifications)
@@ -87,7 +108,9 @@ app/src/main/java/com/onefera/app/
     ├── post/                       post card, comments, grid, post detail
     ├── create/                     new post / reel (photos up to 10, video up to 90 s)
     ├── reels/                      full-screen vertical video player
-    ├── search/                     people, hashtags, recent and trending searches, tag pages
+    ├── search/                     people, hashtags, products, recent and trending searches, tag pages
+    ├── shop/                       shop tab (categories, Drop of the Day, filters, sort), product page,
+    │                               wishlist, cart, checkout + simulated Razorpay, orders + tracking, product tags
     ├── chat/                       chats list, new message, conversation (replies, attachments, quick replies)
     ├── notifications/              activity, follow requests
     ├── user/                       other people's profiles, follower lists
@@ -113,7 +136,7 @@ branding/                           source logo and icon files (Play Store icon:
 | 1 | Project, CI, branding, themes, onboarding, auth, app shell, profile, settings | ✅ |
 | 2 | Feed & stories, create post, reels player, search, notifications, follow | ✅ |
 | 3 | Real-time chat (replies, attachments, quick vibes), push notifications | ✅ |
-| 4 | Shop: catalogue, filters, product page, wishlist, cart, checkout (Razorpay), orders | next |
-| 5 | Seller mode: dashboard, listings, inventory, orders, analytics | |
+| 4 | Shop: catalogue, filters, product page, wishlist, cart, checkout (Razorpay, simulated), orders, product tags | ✅ |
+| 5 | Seller mode: dashboard, listings, inventory, orders, analytics | next |
 | 6 | Aura engine, streaks, leaderboard, Mystery Box, memberships | |
 | 7 | Near (people + stores), release hardening, Play Store listing | |

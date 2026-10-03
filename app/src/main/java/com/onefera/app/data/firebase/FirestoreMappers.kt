@@ -13,6 +13,7 @@ import com.onefera.app.data.model.Post
 import com.onefera.app.data.model.PostMedia
 import com.onefera.app.data.model.PostType
 import com.onefera.app.data.model.PostVisibility
+import com.onefera.app.data.model.ProductSummary
 import com.onefera.app.data.model.Story
 import com.onefera.app.data.model.UserSummary
 import kotlinx.coroutines.channels.awaitClose
@@ -99,6 +100,7 @@ internal fun DocumentSnapshot.toPost(): Post = Post(
     shareCount = get("shareCount").asInt(),
     createdAt = millis("createdAt"),
     visibility = getString("visibility") ?: PostVisibility.PUBLIC,
+    products = (get("products") as? List<*>)?.mapNotNull { (it as? Map<*, *>)?.toProductSummary() }.orEmpty(),
 )
 
 internal fun DocumentSnapshot.toComment(postId: String): Comment = Comment(
@@ -126,4 +128,24 @@ internal fun DocumentSnapshot.toNotification(): AppNotification = AppNotificatio
     text = getString("text").orEmpty(),
     createdAt = millis("createdAt"),
     read = getBoolean("read") ?: false,
+)
+
+internal fun ProductSummary.toMap(): Map<String, Any?> = mapOf(
+    "id" to id,
+    "title" to title,
+    "brand" to brand,
+    "imageUrl" to imageUrl,
+    "price" to price,
+    "mrp" to mrp,
+    "sellerId" to sellerId,
+)
+
+internal fun Map<*, *>.toProductSummary(): ProductSummary = ProductSummary(
+    id = get("id") as? String ?: "",
+    title = get("title") as? String ?: "",
+    brand = get("brand") as? String ?: "",
+    imageUrl = get("imageUrl") as? String,
+    price = (get("price") as? Number)?.toInt() ?: 0,
+    mrp = (get("mrp") as? Number)?.toInt() ?: 0,
+    sellerId = get("sellerId") as? String ?: "",
 )

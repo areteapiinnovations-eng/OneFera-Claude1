@@ -135,6 +135,7 @@ class DemoPostRepository @Inject constructor(
             soundName = if (draft.isVideo) "Original audio · ${me.username}" else "",
             createdAt = System.currentTimeMillis(),
             visibility = if (me.isPrivate) PostVisibility.FOLLOWERS else PostVisibility.PUBLIC,
+            products = draft.products.take(Post.MAX_PRODUCT_TAGS),
         )
         social.addPost(post)
         onProgress(1f)

@@ -76,6 +76,7 @@ import com.onefera.app.feature.feed.FeedTab
 import com.onefera.app.feature.profile.ProfileTab
 import com.onefera.app.feature.reels.ReelsTab
 import com.onefera.app.feature.search.SearchTab
+import com.onefera.app.feature.shop.ShopTab
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,6 +100,7 @@ fun MainScreen(
     val actions = LocalAppActions.current
     var tab by rememberSaveable { mutableStateOf(MainTab.Home) }
     var showCreate by rememberSaveable { mutableStateOf(false) }
+    var searchShop by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val tabStates = rememberSaveableStateHolder()
     val pickStory = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -147,7 +149,14 @@ fun MainScreen(
                                 onAddStory = addStory,
                                 onMessage = viewModel::showMessage,
                             )
-                            MainTab.Search -> SearchTab()
+                            MainTab.Search -> SearchTab(openShopSection = searchShop, onSectionOpened = { searchShop = false })
+                            MainTab.Shop -> ShopTab(
+                                onSearch = {
+                                    searchShop = true
+                                    tab = MainTab.Search
+                                },
+                                onMessage = viewModel::showMessage,
+                            )
                             MainTab.Chats -> ChatsTab()
                             MainTab.Reels -> ReelsTab(onMessage = viewModel::showMessage)
                             MainTab.You -> ProfileTab(

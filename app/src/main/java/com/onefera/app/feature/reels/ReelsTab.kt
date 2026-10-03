@@ -67,6 +67,7 @@ import com.onefera.app.core.media.VideoSurface
 import com.onefera.app.core.media.rememberFirstFrameRendered
 import com.onefera.app.core.media.rememberVideoPlayer
 import com.onefera.app.core.navigation.LocalAppActions
+import com.onefera.app.feature.shop.ProductTagChip
 import com.onefera.app.data.auth.AuthRepository
 import com.onefera.app.data.auth.SessionState
 import com.onefera.app.data.model.MediaType
@@ -286,6 +287,10 @@ private fun ReelPage(
             Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 88.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            post.products.firstOrNull()?.let { product ->
+                val openProduct = LocalAppActions.current.openProduct
+                ProductTagChip(product, onClick = { openProduct(product.id) }, onDark = true)
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Avatar(post.author.avatarUrl, post.author.displayName, size = 36.dp, modifier = Modifier.clip(CircleShape).clickable(onClick = onAuthor))
                 Spacer(Modifier.width(10.dp))

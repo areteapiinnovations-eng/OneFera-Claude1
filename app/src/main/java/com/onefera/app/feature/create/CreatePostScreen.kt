@@ -72,6 +72,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.onefera.app.data.model.Post
+import com.onefera.app.data.model.Product
+import com.onefera.app.data.model.ProductSummary
+import com.onefera.app.data.shop.ShopRepository
+import com.onefera.app.feature.shop.ProductPickerSheet
+import com.onefera.app.feature.shop.TagProductsCard
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import javax.inject.Inject
 
 data class CreatePostUiState(
@@ -84,6 +95,7 @@ data class CreatePostUiState(
     val progress: Float = 0f,
     val error: String? = null,
     val published: Boolean = false,
+    val products: List<ProductSummary> = emptyList(),
 ) {
     val canPublish: Boolean get() = media.isNotEmpty() && !publishing
 }
@@ -92,7 +104,12 @@ data class CreatePostUiState(
 class CreatePostViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val posts: PostRepository,
+    shop: ShopRepository,
 ) : ViewModel() {
+    /** Catalogue for the "Tag products" picker, loaded only while the picker is open. */
+    val catalogue: StateFlow<List<Product>> = shop.catalogue()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val reelMode = savedStateHandle.toRoute<CreatePostRoute>().reel
     private val _state = MutableStateFlow(CreatePostUiState(asReel = reelMode))
     val state: StateFlow<CreatePostUiState> = _state.asStateFlow()
@@ -116,13 +133,14 @@ class CreatePostViewModel @Inject constructor(
     fun onCaptionChange(v: String) = _state.update { it.copy(caption = v.take(2200), error = null) }
     fun onLocationChange(v: String) = _state.update { it.copy(location = v.take(60)) }
     fun onReelChange(v: Boolean) = _state.update { it.copy(asReel = v) }
+    fun onProductsChange(products: List<ProductSummary>) = _state.update { it.copy(products = products.take(Post.MAX_PRODUCT_TAGS)) }
 
     fun publish() {
         val s = _state.value
         if (!s.canPublish) return
         _state.update { it.copy(publishing = true, progress = 0f, error = null) }
         viewModelScope.launch {
-            posts.createPost(PostDraft(s.caption, s.location, s.media, s.isVideo, s.asReel)) { p ->
+            posts.createPost(PostDraft(s.caption, s.location, s.media, s.isVideo, s.asReel, s.products)) { p ->
                 _state.update { it.copy(progress = p) }
             }
                 .onSuccess { _state.update { it.copy(publishing = false, published = true) } }
@@ -140,6 +158,7 @@ fun CreatePostScreen(onBack: () -> Unit, onPublished: () -> Unit, viewModel: Cre
     }
     val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { viewModel.onVideoPicked(it) }
     LaunchedEffect(state.published) { if (state.published) onPublished() }
+    var showProductPicker by rememberSaveable { mutableStateOf(false) }
 
     AuroraBackground(Modifier.fillMaxSize(), intensity = 0.5f) {
         Column(Modifier.fillMaxSize()) {
@@ -202,6 +221,11 @@ fun CreatePostScreen(onBack: () -> Unit, onPublished: () -> Unit, viewModel: Cre
                     leadingIcon = R.drawable.ic_location,
                     imeAction = ImeAction.Done,
                 )
+                TagProductsCard(
+                    products = state.products,
+                    onAdd = { showProductPicker = true },
+                    onRemove = { removed -> viewModel.onProductsChange(state.products.filterNot { it.id == removed.id }) },
+                )
                 if (state.isVideo) {
                     GlassCard(Modifier.fillMaxWidth(), contentPadding = 14.dp) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -235,6 +259,20 @@ fun CreatePostScreen(onBack: () -> Unit, onPublished: () -> Unit, viewModel: Cre
                 )
             }
         }
+    }
+
+    if (showProductPicker) {
+        val catalogue by viewModel.catalogue.collectAsStateWithLifecycle()
+        ProductPickerSheet(
+            catalogue = catalogue,
+            selected = state.products,
+            max = Post.MAX_PRODUCT_TAGS,
+            onDone = { picked ->
+                viewModel.onProductsChange(picked)
+                showProductPicker = false
+            },
+            onDismiss = { showProductPicker = false },
+        )
     }
 }
 

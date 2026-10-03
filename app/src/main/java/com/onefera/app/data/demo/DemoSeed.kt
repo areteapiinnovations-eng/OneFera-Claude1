@@ -7,6 +7,7 @@ import com.onefera.app.data.model.Post
 import com.onefera.app.data.model.PostMedia
 import com.onefera.app.data.model.PostType
 import com.onefera.app.data.model.PostVisibility
+import com.onefera.app.data.model.Product
 import com.onefera.app.data.model.Story
 import com.onefera.app.data.model.UserProfile
 import com.onefera.app.data.model.extractHashtags
@@ -18,7 +19,7 @@ import com.onefera.app.data.model.toSummary
  */
 internal object DemoSeed {
     const val CREATOR_PASSWORD = "creator-demo-only"
-    const val VERSION = 2
+    const val VERSION = 3
 
     private const val HOUR = 60 * 60 * 1000L
     private const val VIDEO_BASE = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample"
@@ -79,7 +80,22 @@ internal object DemoSeed {
     private val byUid = creators.associateBy { it.uid }
     private fun author(uid: String) = byUid.getValue(uid).toSummary()
 
-    fun posts(now: Long): List<Post> {
+    /** Products tagged on seed posts ("tap to buy"), by post id. */
+    private val productTags = mapOf(
+        "seed-1" to listOf("p-gray-dress", "p-classic-sun-glasses"),
+        "seed-2" to listOf("p-apple-airpods-max-silver"),
+        "seed-4" to listOf("p-nike-air-jordan-1-red-and-black", "p-puma-future-rider-trainers"),
+        "seed-6" to listOf("p-red-lipstick", "p-eyeshadow-palette-with-mirror"),
+        "seed-9" to listOf("p-sports-sneakers-off-white-red"),
+        "seed-10" to listOf("p-green-crystal-earring", "p-tropical-earring"),
+        "seed-11" to listOf("p-asus-zenbook-pro-dual-screen-laptop"),
+    )
+
+    fun posts(now: Long, catalog: Map<String, Product>): List<Post> = basePosts(now).map { post ->
+        post.copy(products = productTags[post.id].orEmpty().mapNotNull { catalog[it]?.toSummary() })
+    }
+
+    private fun basePosts(now: Long): List<Post> {
         fun post(
             id: String,
             uid: String,

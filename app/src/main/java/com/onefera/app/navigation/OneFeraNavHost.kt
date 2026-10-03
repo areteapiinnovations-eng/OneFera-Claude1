@@ -36,6 +36,12 @@ import com.onefera.app.feature.main.MainScreen
 import com.onefera.app.feature.onboarding.OnboardingScreen
 import com.onefera.app.feature.profile.EditProfileScreen
 import com.onefera.app.feature.settings.SettingsScreen
+import com.onefera.app.feature.shop.CartScreen
+import com.onefera.app.feature.shop.CheckoutScreen
+import com.onefera.app.feature.shop.OrderScreen
+import com.onefera.app.feature.shop.OrdersScreen
+import com.onefera.app.feature.shop.ProductScreen
+import com.onefera.app.feature.shop.WishlistScreen
 
 @Composable
 fun OneFeraNavHost(
@@ -56,6 +62,8 @@ fun OneFeraNavHost(
             "post" -> if (value.isNotEmpty()) navController.navigate(PostDetailRoute(value))
             "user" -> if (value.isNotEmpty()) navController.navigate(UserProfileRoute(value))
             "notifications" -> navController.navigate(NotificationsRoute)
+            "order" -> if (value.isNotEmpty()) navController.navigate(OrderRoute(value))
+            "product" -> if (value.isNotEmpty()) navController.navigate(ProductRoute(value))
         }
         deepLinks?.consumed()
     }
@@ -81,6 +89,12 @@ fun OneFeraNavHost(
             createPost = { reel -> navController.navigate(CreatePostRoute(reel)) },
             openChat = { id -> navController.navigate(ChatRoute(id)) },
             newChat = { navController.navigate(NewChatRoute) },
+            openProduct = { navController.navigate(ProductRoute(it)) },
+            openCart = { navController.navigate(CartRoute) { launchSingleTop = true } },
+            checkout = { navController.navigate(CheckoutRoute) { launchSingleTop = true } },
+            openOrders = { navController.navigate(OrdersRoute) { launchSingleTop = true } },
+            openOrder = { navController.navigate(OrderRoute(it)) },
+            openWishlist = { navController.navigate(WishlistRoute) { launchSingleTop = true } },
             back = { navController.popBackStack() },
         )
     }
@@ -151,6 +165,20 @@ fun OneFeraNavHost(
         composable<TagRoute> { TagScreen(onBack = { navController.popBackStack() }) }
         composable<NotificationsRoute> { NotificationsScreen(onBack = { navController.popBackStack() }) }
         composable<ChatRoute> { ChatScreen(onBack = { navController.popBackStack() }) }
+        composable<ProductRoute> { ProductScreen(onBack = { navController.popBackStack() }) }
+        composable<CartRoute> { CartScreen(onBack = { navController.popBackStack() }) }
+        composable<CheckoutRoute> {
+            CheckoutScreen(
+                onBack = { navController.popBackStack() },
+                onPlaced = { orderId ->
+                    // Leave checkout and cart behind: back from the confirmation returns to where shopping started.
+                    navController.navigate(OrderRoute(orderId, justPlaced = true)) { popUpTo<CartRoute> { inclusive = true } }
+                },
+            )
+        }
+        composable<OrdersRoute> { OrdersScreen(onBack = { navController.popBackStack() }) }
+        composable<OrderRoute> { OrderScreen(onBack = { navController.popBackStack() }) }
+        composable<WishlistRoute> { WishlistScreen(onBack = { navController.popBackStack() }) }
         composable<NewChatRoute> {
             NewChatScreen(
                 onBack = { navController.popBackStack() },

@@ -28,11 +28,6 @@ import com.onefera.app.core.designsystem.theme.OneFeraTheme
 private data class Upcoming(val title: String, val message: String, val features: List<String>)
 
 private fun upcomingFor(tab: MainTab): Upcoming = when (tab) {
-    MainTab.Shop -> Upcoming(
-        "The shop is stocking up 🛍️",
-        "Drops, deals and creator stores, all one tap from your feed.",
-        listOf("Categories & Drop of the Day", "Search, filters and sort", "Product pages, wishlist & cart", "Secure checkout & order tracking"),
-    )
     MainTab.Near -> Upcoming(
         "What's around you 📍",
         "Discover creators and sellers nearby, only if you choose to share your location.",

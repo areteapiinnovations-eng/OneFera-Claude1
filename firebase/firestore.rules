@@ -97,6 +97,36 @@ service cloud.firestore {
       match /fcmTokens/{token} {
         allow read, write: if isOwner(uid);
       }
+
+      // ---- shop (private to the user)
+
+      match /wishlist/{productId} {
+        allow read, create, delete: if isOwner(uid);
+      }
+
+      // Cart prices are only a preview: checkout re-prices every line from /products.
+      match /cart/{itemKey} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && incoming().keys().hasOnly(['product', 'variant', 'quantity', 'addedAt'])
+          && incoming().quantity is int && incoming().quantity >= 1 && incoming().quantity <= 10
+          && incoming().variant is string && incoming().variant.size() <= 30
+          && incoming().product.id is string
+          && (itemKey == incoming().product.id || itemKey.matches(incoming().product.id + '__.+'));
+      }
+
+      match /addresses/{addressId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && incoming().keys().hasOnly(['name', 'phone', 'line1', 'line2', 'city', 'state', 'pincode'])
+          && incoming().name is string && incoming().name.size() <= 60
+          && incoming().phone is string && incoming().phone.matches('^[0-9]{10}$')
+          && incoming().line1 is string && incoming().line1.size() <= 120
+          && incoming().line2 is string && incoming().line2.size() <= 120
+          && incoming().city is string && incoming().city.size() <= 40
+          && incoming().state is string && incoming().state.size() <= 40
+          && incoming().pincode is string && incoming().pincode.matches('^[0-9]{6}$');
+      }
     }
 
     // Username claims: one document per handle, owned by the claiming user.
@@ -124,6 +154,7 @@ service cloud.firestore {
         && incoming().caption is string && incoming().caption.size() <= 2200
         && incoming().media is list && incoming().media.size() >= 1 && incoming().media.size() <= 10
         && incoming().tags is list && incoming().tags.size() <= 30
+        && incoming().get('products', []) is list && incoming().get('products', []).size() <= 5
         && incoming().likeCount == 0
         && incoming().commentCount == 0
         && incoming().shareCount == 0;
@@ -205,6 +236,21 @@ service cloud.firestore {
           && incoming().unsent == true && incoming().text == '';
         allow delete: if false;
       }
+    }
+
+    // ------------------------------------------------------------ shop
+
+    // Catalogue: readable by everyone signed in. Listings are managed by admins for now
+    // (seller self-service arrives with Seller mode); stock and sales counters by Cloud Functions.
+    match /products/{productId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Orders are created, paid, cancelled and advanced only by Cloud Functions.
+    match /orders/{orderId} {
+      allow read: if signedIn() && resource.data.buyerId == me();
+      allow write: if false;
     }
 
     // ------------------------------------------------------------ tags (Cloud Functions only)

@@ -104,7 +104,25 @@ tap_text "Profile menu";              shot 12-profile-menu
 tap_text "Settings";                  shot 13-settings
 tap_text "Sunset Pop";                shot 14-settings-sunset-pop
 timeout 10 adb shell input keyevent KEYCODE_BACK; shot 15-profile-sunset-pop
-tap_text "Shop";                      shot 16-shop-upcoming
+# Shop: find a product, add it to the cart and check out with the simulated payment.
+type_into() { tap_text "$1" && sleep 1 && timeout 10 adb shell input text "$2" && timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 1; }
+tap_text "Shop";                      shot 16-shop 6
+tap_text "Search drops, brands…";     sleep 2
+timeout 10 adb shell input text "airpods"; shot 17-shop-search 5
+timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 1
+tap_text "Apple Airpods";             shot 18-product 5
+tap_text "Add to cart";               sleep 2
+tap_text "Cart, 1 items";             shot 19-cart 3
+tap_text "Checkout";                  sleep 3
+type_into "Full name" "Asha"
+type_into "Mobile number" "9876543210"
+type_into "House / flat, street" "12%sMG%sRoad"
+type_into "City" "Pune"
+type_into "PIN code" "411001"
+type_into "State" "Maharashtra"
+shot 20-checkout
+tap_text "Pay securely";              shot 21-payment-sheet 4
+tap_text "Pay ₹*";                    shot 22-order-placed 8
 
 if ! timeout 10 adb shell pidof "$PKG" >/dev/null; then
   echo "::error::App process is not running at the end of the smoke test"

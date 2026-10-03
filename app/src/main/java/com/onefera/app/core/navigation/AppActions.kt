@@ -17,6 +17,12 @@ data class AppActions(
     val createPost: (reel: Boolean) -> Unit = {},
     val openChat: (conversationId: String) -> Unit = {},
     val newChat: () -> Unit = {},
+    val openProduct: (productId: String) -> Unit = {},
+    val openCart: () -> Unit = {},
+    val checkout: () -> Unit = {},
+    val openOrders: () -> Unit = {},
+    val openOrder: (orderId: String) -> Unit = {},
+    val openWishlist: () -> Unit = {},
     val back: () -> Unit = {},
 )
 
