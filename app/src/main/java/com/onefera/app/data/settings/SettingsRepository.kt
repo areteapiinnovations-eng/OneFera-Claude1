@@ -25,6 +25,7 @@ data class AppSettings(
     val onboardingSeen: Boolean = false,
     val pushEnabled: Boolean = true,
     val recentSearches: List<String> = emptyList(),
+    val notificationPromptShown: Boolean = false,
 )
 
 @Singleton
@@ -37,6 +38,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
                 themeMode = ThemeMode.fromName(prefs[Keys.THEME_MODE]),
                 onboardingSeen = prefs[Keys.ONBOARDING_SEEN] ?: false,
                 pushEnabled = prefs[Keys.PUSH_ENABLED] ?: true,
+                notificationPromptShown = prefs[Keys.NOTIFICATION_PROMPT] ?: false,
                 recentSearches = prefs[Keys.RECENT_SEARCHES]?.split(SEPARATOR)?.filter { it.isNotBlank() }.orEmpty(),
             )
         }
@@ -63,6 +65,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         prefs[Keys.RECENT_SEARCHES] = current.filterNot { it == term }.joinToString(SEPARATOR)
     }
 
+    suspend fun setNotificationPromptShown() = context.settingsStore.edit { it[Keys.NOTIFICATION_PROMPT] = true }
+
     suspend fun clearRecentSearches() = context.settingsStore.edit { it.remove(Keys.RECENT_SEARCHES) }
 
     private companion object {
@@ -75,5 +79,6 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val ONBOARDING_SEEN = booleanPreferencesKey("onboarding_seen")
         val PUSH_ENABLED = booleanPreferencesKey("push_enabled")
         val RECENT_SEARCHES = stringPreferencesKey("recent_searches")
+        val NOTIFICATION_PROMPT = booleanPreferencesKey("notification_prompt_shown")
     }
 }

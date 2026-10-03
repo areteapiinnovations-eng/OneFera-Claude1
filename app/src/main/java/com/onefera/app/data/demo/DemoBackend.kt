@@ -248,4 +248,7 @@ class DemoUserRepository @Inject constructor(private val backend: DemoBackend) :
 
     override suspend fun setPrivate(uid: String, isPrivate: Boolean): Result<Unit> =
         backend.saveProfile(uid) { it.copy(isPrivate = isPrivate) }
+
+    override suspend fun touchLastActive(uid: String) =
+        backend.adjustProfile(uid) { it.copy(lastActiveAt = System.currentTimeMillis()) }
 }

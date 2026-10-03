@@ -95,6 +95,10 @@ tap_text "Search";                    shot 09-search 4
 tap_text "Home";                      sleep 2
 tap_text "Notifications*";            shot 10-notifications 4
 timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 1
+tap_text "Chats";                     shot 10b-chats 4
+tap_text "Aanya Rao";                 shot 10c-chat 4
+tap_text "lowkey yes";                shot 10d-chat-reply 7
+timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 2
 tap_text "You";                       shot 11-profile
 tap_text "Profile menu";              shot 12-profile-menu
 tap_text "Settings";                  shot 13-settings

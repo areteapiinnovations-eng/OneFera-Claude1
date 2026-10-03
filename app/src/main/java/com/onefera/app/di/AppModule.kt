@@ -6,6 +6,9 @@ import com.onefera.app.data.backend.ApplicationScope
 import com.onefera.app.data.backend.BackendConfig
 import com.onefera.app.data.demo.DemoAuthRepository
 import com.onefera.app.data.demo.DemoUserRepository
+import com.onefera.app.data.chat.ChatRepository
+import com.onefera.app.data.chat.FirestoreChatRepository
+import com.onefera.app.data.demo.DemoChatRepository
 import com.onefera.app.data.demo.DemoNotificationRepository
 import com.onefera.app.data.demo.DemoPostRepository
 import com.onefera.app.data.demo.DemoSocialRepository
@@ -87,4 +90,12 @@ object AppModule {
         firestore: Provider<FirestoreNotificationRepository>,
         demo: Provider<DemoNotificationRepository>,
     ): NotificationRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
+
+    @Provides
+    @Singleton
+    fun provideChatRepository(
+        config: BackendConfig,
+        firestore: Provider<FirestoreChatRepository>,
+        demo: Provider<DemoChatRepository>,
+    ): ChatRepository = if (config.isFirebaseEnabled) firestore.get() else demo.get()
 }

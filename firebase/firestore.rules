@@ -164,6 +164,49 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.authorId == me();
     }
 
+    // ------------------------------------------------------------ chat
+
+    function isMember(convo) { return signedIn() && me() in convo.memberIds; }
+
+    match /conversations/{cid} {
+      allow read: if signedIn() && me() in resource.data.memberIds;
+
+      // One-to-one only; the id must be the two member uids sorted and joined with "_".
+      allow create: if signedIn()
+        && incoming().memberIds is list && incoming().memberIds.size() == 2
+        && me() in incoming().memberIds
+        && cid == incoming().memberIds[0] + '_' + incoming().memberIds[1]
+        && incoming().memberIds[0] < incoming().memberIds[1]
+        && incoming().lastMessageAt == 0;
+
+      // Members may only touch their own read state and typing flag; previews and
+      // unread counts for others are written by Cloud Functions.
+      allow update: if isMember(resource.data)
+        && changed().hasOnly(['unreadCounts', 'lastReadAt', 'typing'])
+        && incoming().unreadCounts.diff(resource.data.get('unreadCounts', {})).affectedKeys().hasOnly([me()])
+        && incoming().get('unreadCounts', {}).get(me(), 0) == 0
+        && incoming().get('lastReadAt', {}).diff(resource.data.get('lastReadAt', {})).affectedKeys().hasOnly([me()])
+        && incoming().get('typing', {}).diff(resource.data.get('typing', {})).affectedKeys().hasOnly([me()]);
+
+      allow delete: if false;
+
+      match /messages/{mid} {
+        function convo() { return get(/databases/$(database)/documents/conversations/$(cid)).data; }
+
+        allow read: if isMember(convo());
+        allow create: if isMember(convo())
+          && incoming().senderId == me()
+          && incoming().text is string && incoming().text.size() <= 2000
+          && (incoming().text.size() > 0 || incoming().get('attachment', null) != null)
+          && incoming().unsent == false;
+        // Senders may unsend (blank out) their own messages.
+        allow update: if isMember(convo()) && resource.data.senderId == me()
+          && changed().hasOnly(['unsent', 'text', 'attachment'])
+          && incoming().unsent == true && incoming().text == '';
+        allow delete: if false;
+      }
+    }
+
     // ------------------------------------------------------------ tags (Cloud Functions only)
 
     match /tags/{tag} {

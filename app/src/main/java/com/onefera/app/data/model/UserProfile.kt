@@ -28,6 +28,8 @@ data class UserProfile(
     val followingCount: Int = 0,
     val profileViews: Int = 0,
     val createdAt: Long = 0L,
+    /** Last time the app was open (for "Active now"). */
+    val lastActiveAt: Long = 0L,
 ) {
     val auraGrade: AuraGrade get() = AuraGrade.forPoints(auraPoints)
 }

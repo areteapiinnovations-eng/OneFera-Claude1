@@ -1,5 +1,7 @@
 package com.onefera.app.feature.main
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -68,6 +71,7 @@ import com.onefera.app.core.designsystem.theme.OneFeraTheme
 import com.onefera.app.core.designsystem.theme.StatusColors
 import com.onefera.app.core.navigation.LocalAppActions
 import com.onefera.app.data.model.UserProfile
+import com.onefera.app.feature.chat.ChatsTab
 import com.onefera.app.feature.feed.FeedTab
 import com.onefera.app.feature.profile.ProfileTab
 import com.onefera.app.feature.reels.ReelsTab
@@ -83,6 +87,15 @@ fun MainScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val unread by viewModel.unreadCount.collectAsStateWithLifecycle()
     val storyUpload by viewModel.storyUpload.collectAsStateWithLifecycle()
+    val unreadChats by viewModel.unreadChats.collectAsStateWithLifecycle()
+    val askNotifications by viewModel.shouldAskNotificationPermission.collectAsStateWithLifecycle()
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(askNotifications) {
+        if (askNotifications && Build.VERSION.SDK_INT >= 33) {
+            viewModel.onNotificationPromptShown()
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     val actions = LocalAppActions.current
     var tab by rememberSaveable { mutableStateOf(MainTab.Home) }
     var showCreate by rememberSaveable { mutableStateOf(false) }
@@ -121,7 +134,7 @@ fun MainScreen(
                     }
                 }
             },
-            bottomBar = { MainBottomBar(selected = tab, profile = state.profile, onSelect = { tab = it }) },
+            bottomBar = { MainBottomBar(selected = tab, profile = state.profile, unreadChats = unreadChats, onSelect = { tab = it }) },
             snackbarHost = { SnackbarHost(snackbar) },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
@@ -135,6 +148,7 @@ fun MainScreen(
                                 onMessage = viewModel::showMessage,
                             )
                             MainTab.Search -> SearchTab()
+                            MainTab.Chats -> ChatsTab()
                             MainTab.Reels -> ReelsTab(onMessage = viewModel::showMessage)
                             MainTab.You -> ProfileTab(
                                 state = state,
@@ -241,7 +255,7 @@ private fun MainTopBar(
 }
 
 @Composable
-private fun MainBottomBar(selected: MainTab, profile: UserProfile?, onSelect: (MainTab) -> Unit) {
+private fun MainBottomBar(selected: MainTab, profile: UserProfile?, unreadChats: Int, onSelect: (MainTab) -> Unit) {
     val extras = OneFeraTheme.extras
     Column(
         Modifier
@@ -258,14 +272,21 @@ private fun MainBottomBar(selected: MainTab, profile: UserProfile?, onSelect: (M
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MainTab.entries.forEach { tab ->
-                BottomBarItem(tab = tab, selected = tab == selected, profile = profile, onClick = { onSelect(tab) }, modifier = Modifier.weight(1f))
+                BottomBarItem(
+                    tab = tab,
+                    selected = tab == selected,
+                    profile = profile,
+                    badge = if (tab == MainTab.Chats) unreadChats else 0,
+                    onClick = { onSelect(tab) },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun BottomBarItem(tab: MainTab, selected: Boolean, profile: UserProfile?, onClick: () -> Unit, modifier: Modifier) {
+private fun BottomBarItem(tab: MainTab, selected: Boolean, profile: UserProfile?, badge: Int, onClick: () -> Unit, modifier: Modifier) {
     val extras = OneFeraTheme.extras
     val interaction = remember { MutableInteractionSource() }
     Column(
@@ -280,11 +301,26 @@ private fun BottomBarItem(tab: MainTab, selected: Boolean, profile: UserProfile?
         if (tab == MainTab.You) {
             Avatar(imageUrl = profile?.avatarUrl, name = profile?.displayName ?: "You", size = 28.dp, ring = selected)
         } else {
-            val iconModifier = Modifier.size(26.dp)
-            if (selected) {
-                Icon(painterResource(tab.selectedIcon), contentDescription = null, modifier = iconModifier.gradientTint(extras.gradientBrush()))
-            } else {
-                Icon(painterResource(tab.icon), contentDescription = null, tint = extras.muted, modifier = iconModifier)
+            Box {
+                val iconModifier = Modifier.size(26.dp)
+                if (selected) {
+                    Icon(painterResource(tab.selectedIcon), contentDescription = null, modifier = iconModifier.gradientTint(extras.gradientBrush()))
+                } else {
+                    Icon(painterResource(tab.icon), contentDescription = null, tint = extras.muted, modifier = iconModifier)
+                }
+                if (badge > 0) {
+                    Text(
+                        if (badge > 9) "9+" else "$badge",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 8.dp, y = (-4).dp)
+                            .clip(CircleShape)
+                            .background(StatusColors.Live)
+                            .padding(horizontal = 4.dp),
+                    )
+                }
             }
         }
         Text(tab.label, style = MaterialTheme.typography.labelSmall, color = if (selected) MaterialTheme.colorScheme.onSurface else extras.muted, maxLines = 1)

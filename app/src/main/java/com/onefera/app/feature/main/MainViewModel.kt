@@ -7,6 +7,9 @@ import com.onefera.app.data.auth.SessionState
 import com.onefera.app.data.backend.BackendConfig
 import com.onefera.app.data.model.AccountMode
 import com.onefera.app.data.model.UserProfile
+import com.onefera.app.data.chat.ChatRepository
+import com.onefera.app.data.push.PushRegistrar
+import com.onefera.app.data.settings.SettingsRepository
 import com.onefera.app.data.social.NotificationRepository
 import com.onefera.app.data.social.StoryRepository
 import com.onefera.app.data.user.UserRepository
@@ -38,6 +41,9 @@ class MainViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val users: UserRepository,
     private val stories: StoryRepository,
+    private val pushRegistrar: PushRegistrar,
+    chat: ChatRepository,
+    private val settings: SettingsRepository,
     notifications: NotificationRepository,
     backendConfig: BackendConfig,
 ) : ViewModel() {
@@ -45,6 +51,18 @@ class MainViewModel @Inject constructor(
     /** Unread notifications, for the bell badge. */
     val unreadCount: StateFlow<Int> = notifications.unreadCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** Conversations with unread messages, for the Chats tab badge. */
+    val unreadChats: StateFlow<Int> = chat.totalUnread()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** True until we've asked once for the Android 13+ notification permission. */
+    val shouldAskNotificationPermission: StateFlow<Boolean> = settings.settings.map { it.pushEnabled && !it.notificationPromptShown }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun onNotificationPromptShown() {
+        viewModelScope.launch { settings.setNotificationPromptShown() }
+    }
 
     private val _storyUpload = MutableStateFlow<Float?>(null)
     /** Upload progress (0..1) while a story is being posted, otherwise null. */
@@ -95,7 +113,10 @@ class MainViewModel @Inject constructor(
     }
 
     fun signOut() {
-        viewModelScope.launch { auth.signOut() }
+        viewModelScope.launch {
+            pushRegistrar.unregister()
+            auth.signOut()
+        }
     }
 
     fun showMessage(text: String) {

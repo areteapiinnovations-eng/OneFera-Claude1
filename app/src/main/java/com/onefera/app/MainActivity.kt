@@ -1,5 +1,6 @@
 package com.onefera.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,15 +15,19 @@ import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onefera.app.core.designsystem.theme.OneFeraTheme
+import com.onefera.app.data.push.DeepLinks
 import com.onefera.app.navigation.OneFeraNavHost
 import com.onefera.app.navigation.RootUiState
 import com.onefera.app.navigation.RootViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val rootViewModel: RootViewModel by viewModels()
+
+    @Inject lateinit var deepLinks: DeepLinks
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
@@ -30,6 +35,7 @@ class MainActivity : ComponentActivity() {
         // Hold the splash until the saved session and theme are restored, so there is no flicker.
         splash.setKeepOnScreenCondition { rootViewModel.uiState.value is RootUiState.Loading }
         enableEdgeToEdge()
+        if (savedInstanceState == null) deepLinks.post(intent?.getStringExtra(DeepLinks.EXTRA))
 
         setContent {
             val state by rootViewModel.uiState.collectAsStateWithLifecycle()
@@ -44,10 +50,16 @@ class MainActivity : ComponentActivity() {
                             startDestination = ready.startDestination,
                             isSignedIn = ready.isSignedIn,
                             isDemoMode = ready.isDemoMode,
+                            deepLinks = deepLinks,
                         )
                     }
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        deepLinks.post(intent.getStringExtra(DeepLinks.EXTRA))
     }
 }

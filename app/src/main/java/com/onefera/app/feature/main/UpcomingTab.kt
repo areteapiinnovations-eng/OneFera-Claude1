@@ -33,11 +33,6 @@ private fun upcomingFor(tab: MainTab): Upcoming = when (tab) {
         "Drops, deals and creator stores, all one tap from your feed.",
         listOf("Categories & Drop of the Day", "Search, filters and sort", "Product pages, wishlist & cart", "Secure checkout & order tracking"),
     )
-    MainTab.Chats -> Upcoming(
-        "DMs are loading 💬",
-        "Real-time chats with your circle and your favourite sellers.",
-        listOf("Reply to a specific message", "Photo & file attachments", "Quick-vibe replies", "Online and typing status"),
-    )
     MainTab.Near -> Upcoming(
         "What's around you 📍",
         "Discover creators and sellers nearby, only if you choose to share your location.",

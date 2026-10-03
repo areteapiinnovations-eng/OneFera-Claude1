@@ -23,4 +23,7 @@ interface UserRepository {
     suspend fun setAccountMode(uid: String, mode: AccountMode): Result<Unit>
 
     suspend fun setPrivate(uid: String, isPrivate: Boolean): Result<Unit>
+
+    /** Marks the user as active right now (drives "Active now" in chats). */
+    suspend fun touchLastActive(uid: String)
 }

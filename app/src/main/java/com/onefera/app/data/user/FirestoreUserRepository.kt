@@ -104,6 +104,10 @@ class FirestoreUserRepository @Inject constructor() : UserRepository {
         Unit
     }
 
+    override suspend fun touchLastActive(uid: String) {
+        runCatching { userDoc(uid).update("lastActiveAt", System.currentTimeMillis()).await() }
+    }
+
     private suspend fun <T> runCatchingFriendly(block: suspend () -> T): Result<T> = try {
         Result.success(block())
     } catch (e: UserFacingException) {
@@ -163,4 +167,5 @@ private fun DocumentSnapshot.toUserProfile(): UserProfile = UserProfile(
     followingCount = getLong("followingCount")?.toInt() ?: 0,
     profileViews = getLong("profileViews")?.toInt() ?: 0,
     createdAt = getTimestamp("createdAt")?.toDate()?.time ?: 0L,
+    lastActiveAt = getLong("lastActiveAt") ?: 0L,
 )

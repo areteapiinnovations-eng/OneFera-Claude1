@@ -15,6 +15,8 @@ data class AppActions(
     val openFollowList: (uid: String, followers: Boolean) -> Unit = { _, _ -> },
     val openNotifications: () -> Unit = {},
     val createPost: (reel: Boolean) -> Unit = {},
+    val openChat: (conversationId: String) -> Unit = {},
+    val newChat: () -> Unit = {},
     val back: () -> Unit = {},
 )
 

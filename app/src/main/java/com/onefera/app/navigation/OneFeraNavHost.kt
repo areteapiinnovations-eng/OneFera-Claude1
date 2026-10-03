@@ -16,7 +16,11 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onefera.app.core.navigation.AppActions
+import com.onefera.app.data.push.DeepLinks
+import com.onefera.app.feature.chat.ChatScreen
+import com.onefera.app.feature.chat.NewChatScreen
 import com.onefera.app.core.navigation.LocalAppActions
 import com.onefera.app.feature.auth.ForgotPasswordScreen
 import com.onefera.app.feature.create.CreatePostScreen
@@ -38,8 +42,24 @@ fun OneFeraNavHost(
     startDestination: Any,
     isSignedIn: Boolean,
     isDemoMode: Boolean,
+    deepLinks: DeepLinks? = null,
     navController: NavHostController = rememberNavController(),
 ) {
+    // Open notification targets once the user is signed in and the main screen exists.
+    val pendingLink = deepLinks?.pending?.collectAsStateWithLifecycle()?.value
+    LaunchedEffect(pendingLink, isSignedIn) {
+        val link = pendingLink ?: return@LaunchedEffect
+        if (!isSignedIn) return@LaunchedEffect
+        val (kind, value) = link.substringBefore(':') to link.substringAfter(':', "")
+        when (kind) {
+            "chat" -> if (value.isNotEmpty()) navController.navigate(ChatRoute(value))
+            "post" -> if (value.isNotEmpty()) navController.navigate(PostDetailRoute(value))
+            "user" -> if (value.isNotEmpty()) navController.navigate(UserProfileRoute(value))
+            "notifications" -> navController.navigate(NotificationsRoute)
+        }
+        deepLinks?.consumed()
+    }
+
     // Signing out from anywhere in the app returns to Sign in with a fresh back stack.
     LaunchedEffect(isSignedIn) {
         if (!isSignedIn) {
@@ -59,6 +79,8 @@ fun OneFeraNavHost(
             openFollowList = { uid, followers -> navController.navigate(FollowListRoute(uid, followers)) },
             openNotifications = { navController.navigate(NotificationsRoute) { launchSingleTop = true } },
             createPost = { reel -> navController.navigate(CreatePostRoute(reel)) },
+            openChat = { id -> navController.navigate(ChatRoute(id)) },
+            newChat = { navController.navigate(NewChatRoute) },
             back = { navController.popBackStack() },
         )
     }
@@ -128,6 +150,15 @@ fun OneFeraNavHost(
         composable<PostDetailRoute> { PostDetailScreen(onBack = { navController.popBackStack() }) }
         composable<TagRoute> { TagScreen(onBack = { navController.popBackStack() }) }
         composable<NotificationsRoute> { NotificationsScreen(onBack = { navController.popBackStack() }) }
+        composable<ChatRoute> { ChatScreen(onBack = { navController.popBackStack() }) }
+        composable<NewChatRoute> {
+            NewChatScreen(
+                onBack = { navController.popBackStack() },
+                onOpened = { id ->
+                    navController.navigate(ChatRoute(id)) { popUpTo<NewChatRoute> { inclusive = true } }
+                },
+            )
+        }
     }
     }
 }

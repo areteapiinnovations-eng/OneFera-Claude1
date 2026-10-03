@@ -6,6 +6,7 @@
  *  - likes / comments      -> post counters, author Aura, notifications
  *  - posts                 -> author postsCount + Aura, hashtag counts, media cleanup
  *  - follows / requests    -> follower counters, notifications
+ *  - chat messages         -> conversation preview, unread counts, push
  *  - hourly                -> expired stories removed
  */
 import { initializeApp } from "firebase-admin/app";
@@ -91,17 +92,22 @@ async function notify(
     read: false,
     createdAt: FieldValue.serverTimestamp(),
   });
-  await sendPush(recipientUid, `${actor.displayName} ${text}`);
+  const open = post?.id ? `post:${post.id}` : type === "FollowRequest" ? "notifications" : `user:${actorUid}`;
+  await sendPush(recipientUid, "OneFera", `${actor.displayName} ${text}`, { open, type });
 }
 
-/** Sends a push to every registered device of the user (tokens in users/{uid}/fcmTokens/{token}). */
-async function sendPush(uid: string, body: string): Promise<void> {
+/**
+ * Sends a push to every registered device of the user (tokens in users/{uid}/fcmTokens/{token}).
+ * `data.open` tells the app which screen to open when the notification is tapped.
+ */
+async function sendPush(uid: string, title: string, body: string, data: Record<string, string>): Promise<void> {
   const tokens = await db.collection("users").doc(uid).collection("fcmTokens").get();
   if (tokens.empty) return;
   const response = await getMessaging().sendEachForMulticast({
     tokens: tokens.docs.map((d) => d.id),
-    notification: { title: "OneFera", body },
-    android: { notification: { channelId: "onefera_general" } },
+    notification: { title, body },
+    data: { ...data, title, body },
+    android: { priority: "high", notification: { channelId: "onefera_general", tag: data.conversationId ?? data.open } },
   });
   // Drop tokens that are no longer valid.
   await Promise.all(
@@ -203,6 +209,39 @@ export const onFollowerDeleted = onDocumentDeleted("users/{uid}/followers/{follo
 export const onFollowRequestCreated = onDocumentCreated("users/{uid}/followRequests/{requesterId}", async (event) => {
   const { uid, requesterId } = event.params;
   await notify(uid, "FollowRequest", requesterId, "requested to follow you");
+});
+
+// ---------------------------------------------------------------- chat
+
+export const onMessageCreated = onDocumentCreated("conversations/{cid}/messages/{mid}", async (event) => {
+  const { cid } = event.params;
+  const message = event.data?.data();
+  if (!message) return;
+  const senderId = message.senderId as string;
+  const convoRef = db.collection("conversations").doc(cid);
+  const convo = await convoRef.get();
+  if (!convo.exists) return;
+  const memberIds = (convo.get("memberIds") as string[]) ?? [];
+  const recipients = memberIds.filter((m) => m !== senderId);
+  const attachment = message.attachment as { type?: string; name?: string } | undefined;
+  const preview = (message.text as string | undefined)?.trim()
+    || (attachment?.type === "Image" ? "📷 Photo" : attachment ? `📎 ${attachment.name || "File"}` : "");
+
+  const update: Record<string, unknown> = {
+    lastMessage: preview.slice(0, 120),
+    lastSenderId: senderId,
+    lastMessageAt: Date.now(),
+    [`typing.${senderId}`]: 0,
+  };
+  for (const r of recipients) update[`unreadCounts.${r}`] = FieldValue.increment(1);
+  await convoRef.update(update);
+
+  const sender = await userSummary(senderId);
+  await Promise.all(
+    recipients.map((r) =>
+      sendPush(r, sender?.displayName ?? "New message", preview.slice(0, 140), { open: `chat:${cid}`, type: "Chat", conversationId: cid }),
+    ),
+  );
 });
 
 // ---------------------------------------------------------------- stories

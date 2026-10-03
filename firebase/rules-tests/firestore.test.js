@@ -185,3 +185,58 @@ describe('stories', () => {
     await assertFails(setDoc(doc(db('alice'), 'stories/s2'), { ...base, expiresAt: Date.now() + 72 * 3600 * 1000 }));
   });
 });
+
+describe('chat', () => {
+  const cid = 'alice_bob';
+  const convo = {
+    memberIds: ['alice', 'bob'],
+    members: { alice: summary('alice'), bob: summary('bob') },
+    lastMessage: '',
+    lastSenderId: '',
+    lastMessageAt: 0,
+    unreadCounts: { alice: 0, bob: 0 },
+  };
+  const msg = (senderId, extra = {}) => ({ senderId, text: 'hey 👋', unsent: false, createdAt: serverTimestamp(), ...extra });
+
+  it('lets a member start a one-to-one chat with a correctly formed id', async () => {
+    await assertSucceeds(setDoc(doc(db('alice'), `conversations/${cid}`), convo));
+    await assertFails(setDoc(doc(db('alice'), 'conversations/bob_alice'), convo));
+    await assertFails(setDoc(doc(db('mallory'), `conversations/${cid}`), convo));
+  });
+
+  it('keeps conversations and messages private to members', async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, `conversations/${cid}`), convo);
+      await setDoc(doc(f, `conversations/${cid}/messages/m1`), msg('alice'));
+    });
+    await assertSucceeds(getDoc(doc(db('bob'), `conversations/${cid}/messages/m1`)));
+    await assertFails(getDoc(doc(db('mallory'), `conversations/${cid}`)));
+    await assertFails(getDoc(doc(db('mallory'), `conversations/${cid}/messages/m1`)));
+    await assertFails(setDoc(doc(db('mallory'), `conversations/${cid}/messages/m2`), msg('mallory')));
+  });
+
+  it('only lets you send as yourself', async () => {
+    await seed((f) => setDoc(doc(f, `conversations/${cid}`), convo));
+    await assertSucceeds(setDoc(doc(db('bob'), `conversations/${cid}/messages/m1`), msg('bob')));
+    await assertFails(setDoc(doc(db('bob'), `conversations/${cid}/messages/m2`), msg('alice')));
+    await assertFails(setDoc(doc(db('bob'), `conversations/${cid}/messages/m3`), msg('bob', { text: '' })));
+  });
+
+  it('lets members mark their own messages read but not fake previews or others\' counts', async () => {
+    await seed((f) => setDoc(doc(f, `conversations/${cid}`), { ...convo, unreadCounts: { alice: 3, bob: 0 } }));
+    await assertSucceeds(updateDoc(doc(db('alice'), `conversations/${cid}`), { 'unreadCounts.alice': 0, 'lastReadAt.alice': Date.now() }));
+    await assertFails(updateDoc(doc(db('alice'), `conversations/${cid}`), { 'unreadCounts.bob': 5 }));
+    await assertFails(updateDoc(doc(db('alice'), `conversations/${cid}`), { lastMessage: 'fake' }));
+    await assertSucceeds(updateDoc(doc(db('bob'), `conversations/${cid}`), { 'typing.bob': Date.now() }));
+    await assertFails(updateDoc(doc(db('bob'), `conversations/${cid}`), { 'typing.alice': Date.now() }));
+  });
+
+  it('only lets senders unsend their own messages', async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, `conversations/${cid}`), convo);
+      await setDoc(doc(f, `conversations/${cid}/messages/m1`), msg('alice'));
+    });
+    await assertFails(updateDoc(doc(db('bob'), `conversations/${cid}/messages/m1`), { unsent: true, text: '', attachment: null }));
+    await assertSucceeds(updateDoc(doc(db('alice'), `conversations/${cid}/messages/m1`), { unsent: true, text: '', attachment: null }));
+  });
+});

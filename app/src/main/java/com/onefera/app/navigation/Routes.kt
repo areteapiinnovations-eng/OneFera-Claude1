@@ -17,3 +17,5 @@ import kotlinx.serialization.Serializable
 @Serializable data class FollowListRoute(val uid: String, val followers: Boolean)
 @Serializable data class PostDetailRoute(val postId: String)
 @Serializable data class TagRoute(val tag: String)
+@Serializable data class ChatRoute(val conversationId: String)
+@Serializable data object NewChatRoute

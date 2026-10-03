@@ -59,6 +59,7 @@ import com.onefera.app.data.model.FollowState
 import com.onefera.app.data.model.Post
 import com.onefera.app.data.model.UserProfile
 import com.onefera.app.data.model.toSummary
+import com.onefera.app.data.chat.ChatRepository
 import com.onefera.app.data.social.PostRepository
 import com.onefera.app.data.social.SocialRepository
 import com.onefera.app.data.user.UserRepository
@@ -94,6 +95,7 @@ class UserProfileViewModel @Inject constructor(
     users: UserRepository,
     posts: PostRepository,
     private val social: SocialRepository,
+    private val chat: ChatRepository,
 ) : ViewModel() {
     val uid: String = savedStateHandle.toRoute<UserProfileRoute>().uid
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -115,7 +117,15 @@ class UserProfileViewModel @Inject constructor(
 
     fun unfollow() = viewModelScope.launch { social.unfollow(uid).onFailure { _messages.emit(it.message ?: "Try again") } }
     fun cancelRequest() = viewModelScope.launch { social.cancelRequest(uid) }
-    fun message() = viewModelScope.launch { _messages.emit("DMs are coming in the next update 💬") }
+    private val _openChat = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val openChat: SharedFlow<String> = _openChat
+
+    fun message() = viewModelScope.launch {
+        val profile = state.value.profile ?: return@launch
+        chat.openConversation(profile.toSummary())
+            .onSuccess { _openChat.emit(it) }
+            .onFailure { _messages.emit(it.message ?: "Couldn't open chat") }
+    }
 }
 
 @Composable
@@ -125,6 +135,7 @@ fun UserProfileScreen(onBack: () -> Unit, viewModel: UserProfileViewModel = hilt
     val snackbar = remember { SnackbarHostState() }
     var confirmUnfollow by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
+    LaunchedEffect(viewModel) { viewModel.openChat.collect { actions.openChat(it) } }
 
     AuroraBackground(Modifier.fillMaxSize(), intensity = 0.5f) {
         Column(Modifier.fillMaxSize()) {
