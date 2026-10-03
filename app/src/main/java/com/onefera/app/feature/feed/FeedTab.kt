@@ -228,7 +228,7 @@ private fun EraCard(profile: UserProfile?, modifier: Modifier = Modifier) {
 private fun SuggestionsRow(users: List<UserSummary>, onFollow: (UserSummary) -> Unit) {
     val actions = LocalAppActions.current
     Column {
-        Text("Your circle, loading… 🫶", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        Text("Your circle, loading… 🙌", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(users, key = { it.uid }) { user ->
                 GlassCard(Modifier.width(150.dp), contentPadding = 12.dp) {

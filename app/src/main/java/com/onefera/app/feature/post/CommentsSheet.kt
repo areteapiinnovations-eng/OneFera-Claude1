@@ -101,7 +101,7 @@ class CommentsViewModel @Inject constructor(private val posts: PostRepository) :
     }
 }
 
-private val quickReactions = listOf("🔥", "😍", "💯", "😂", "👏", "✨", "🫶", "no cap 🔥", "slay 💅")
+private val quickReactions = listOf("🔥", "😍", "💯", "😂", "👏", "✨", "🙌", "no cap 🔥", "slay 💅")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

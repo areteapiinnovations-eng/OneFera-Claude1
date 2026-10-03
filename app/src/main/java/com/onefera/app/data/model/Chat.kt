@@ -70,7 +70,7 @@ data class Conversation(
 }
 
 /** Gen Z quick replies, shown as chips above the chat composer. */
-val QuickReplies = listOf("no cap 🔥", "lowkey yes", "understood 🫡", "bussin fr", "slay bestie 💅", "W 🏆", "say less", "😂😂")
+val QuickReplies = listOf("no cap 🔥", "lowkey yes", "understood 👍", "bussin fr", "slay bestie 💅", "W 🏆", "say less", "😂😂")
 
 /** "Active now", "Active 5m ago"… from a last-active timestamp; null when unknown or older than a day. */
 fun presenceLabel(lastActiveAt: Long, now: Long = System.currentTimeMillis()): String? {

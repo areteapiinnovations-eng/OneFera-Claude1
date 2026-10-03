@@ -263,7 +263,7 @@ class DemoChatRepository @Inject constructor(
         }
         val seeds = listOf(
             conv("demo-aanya", listOf(false to "Hiii 👋", true to "Hiee", false to "saw your fit pic, the vibe is unmatched", false to "where'd you get that jacket?? 👀"), 4, 2),
-            conv("demo-kabir", listOf(true to "your new single is on repeat", false to "no cap?? 🔥", true to "lowkey yes", false to "understood 🫡 sending you the next one early"), 45, 0),
+            conv("demo-kabir", listOf(true to "your new single is on repeat", false to "no cap?? 🔥", true to "lowkey yes", false to "understood 👍 sending you the next one early"), 45, 0),
             conv("demo-arjun", listOf(false to "Neon Kicks Y3K restock drops Friday 👟", false to "want me to hold a pair for you?"), 180, 1),
         )
         update { s ->

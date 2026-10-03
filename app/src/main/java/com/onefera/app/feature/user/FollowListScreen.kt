@@ -81,7 +81,7 @@ fun FollowListScreen(onBack: () -> Unit, viewModel: FollowListViewModel = hiltVi
                 state.users.isEmpty() -> EmptyState(
                     R.drawable.ic_person,
                     if (viewModel.showFollowers) "No followers yet" else "Not following anyone yet",
-                    "Your circle grows one vibe at a time 🫶",
+                    "Your circle grows one vibe at a time 🙌",
                     Modifier.fillMaxWidth(),
                 )
                 else -> LazyColumn(Modifier.fillMaxSize().navigationBarsPadding(), contentPadding = PaddingValues(vertical = 8.dp)) {
