@@ -2,7 +2,9 @@ package com.onefera.app.data.media
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import com.onefera.app.data.backend.UserFacingException
@@ -28,19 +30,31 @@ class MediaProcessor @Inject constructor(@ApplicationContext private val context
     private val workDir: File get() = File(context.cacheDir, "upload").apply { mkdirs() }
 
     suspend fun prepareImage(uri: Uri, maxSide: Int = 1440): PreparedMedia = withContext(Dispatchers.IO) {
-        val source = ImageDecoder.createSource(context.contentResolver, uri)
-        val bitmap = try {
-            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-                val longest = max(info.size.width, info.size.height)
-                if (longest > maxSide) {
-                    val scale = maxSide.toFloat() / longest
-                    decoder.setTargetSize((info.size.width * scale).toInt(), (info.size.height * scale).toInt())
-                }
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        val resolver = context.contentResolver
+        // 1) Read the size only, 2) decode with a power-of-two sample size, 3) scale and rotate exactly.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw UserFacingException("Couldn't open that photo.")
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
+        val decoded = resolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+        } ?: throw UserFacingException("Couldn't open that photo.")
+        val rotation = resolver.openInputStream(uri)?.use { stream ->
+            when (ExifInterface(stream).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
             }
-        } catch (e: Exception) {
-            throw UserFacingException("Couldn't open that photo.", e)
+        } ?: 0f
+        val scale = (maxSide.toFloat() / max(decoded.width, decoded.height)).coerceAtMost(1f)
+        val matrix = Matrix().apply {
+            postScale(scale, scale)
+            postRotate(rotation)
         }
+        val bitmap = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
+        if (bitmap !== decoded) decoded.recycle()
         val out = File(workDir, "${UUID.randomUUID()}.jpg")
         out.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
         val aspect = bitmap.width.toFloat() / bitmap.height
