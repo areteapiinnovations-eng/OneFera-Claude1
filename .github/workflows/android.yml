@@ -72,7 +72,7 @@ jobs:
           path: app/build/outputs/apk/debug
 
       - name: Install Pillow for log thumbnails
-        run: pip install --quiet pillow
+        run: python3 -m pip install --quiet --break-system-packages pillow
 
       - name: Enable KVM for the emulator
         run: |
