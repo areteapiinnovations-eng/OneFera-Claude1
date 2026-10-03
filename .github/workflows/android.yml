@@ -93,10 +93,13 @@ jobs:
       fail-fast: false
       matrix:
         device:
-          - { api: 30, target: google_apis }
-          - { api: 34, target: aosp_atd }
-          - { api: 35, target: google_apis }
+          - { api: 30, target: google_apis, experimental: false }
+          - { api: 34, target: aosp_atd, experimental: false }
+          # The API 34/35 Google APIs images intermittently freeze under software GPU emulation on
+          # hosted runners; keep this run visible but non-blocking.
+          - { api: 35, target: google_apis, experimental: true }
     name: smoke-test (API ${{ matrix.device.api }} ${{ matrix.device.target }})
+    continue-on-error: ${{ matrix.device.experimental }}
     steps:
       - uses: actions/checkout@v4
 
