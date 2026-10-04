@@ -1,0 +1,361 @@
+rules_version = '2';
+
+// OneFera Firestore security rules.
+// Counters, Aura, tag counts and notifications are written only by Cloud Functions (admin SDK).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function isOwner(uid) { return signedIn() && me() == uid; }
+    function userDoc(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function isFollower(targetUid) {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(targetUid)/followers/$(me()));
+    }
+    function incoming() { return request.resource.data; }
+    /** True when [ownerUid] has blocked the signed-in user. */
+    function blockedBy(ownerUid) {
+      return exists(/databases/$(database)/documents/users/$(ownerUid)/blocked/$(me()));
+    }
+    function changed() { return incoming().diff(resource.data).affectedKeys(); }
+
+    // ------------------------------------------------------------ users
+
+    // Fields only Cloud Functions (admin SDK) may change.
+    function serverOwned() {
+      return ['verified', 'auraPoints', 'streakDays', 'postsCount', 'followersCount',
+              'followingCount', 'profileViews', 'createdAt', 'uid', 'email', 'birthDate', 'isMinor',
+              'lastCheckInDay', 'membershipPlan', 'membershipExpiresAt'];
+    }
+
+    function validProfileText(d) {
+      return d.displayName is string && d.displayName.size() >= 2 && d.displayName.size() <= 40
+        && d.username is string && d.username.matches('^[a-z0-9][a-z0-9._]*[a-z0-9_]$')
+        && !d.username.matches('.*[.][.].*')
+        && d.username.size() >= 3 && d.username.size() <= 24
+        && d.bio is string && d.bio.size() <= 160
+        && d.city is string && d.city.size() <= 40
+        && d.vibe is string && d.vibe.size() <= 40;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+
+      allow create: if isOwner(uid)
+        && incoming().uid == uid
+        && validProfileText(incoming())
+        && incoming().verified == false
+        && incoming().auraPoints == 0
+        && incoming().streakDays == 0
+        && incoming().postsCount == 0
+        && incoming().followersCount == 0
+        && incoming().followingCount == 0
+        && incoming().profileViews == 0
+        && incoming().accountMode in ['Personal', 'Seller'];
+
+      allow update: if isOwner(uid)
+        && !changed().hasAny(serverOwned())
+        && validProfileText(incoming())
+        && incoming().accountMode in ['Personal', 'Seller']
+        && incoming().isPrivate is bool;
+
+      allow delete: if false;
+
+      // Who this user follows. Written by the user, or by the followed account when it
+      // approves this user's follow request.
+      match /following/{targetUid} {
+        allow read: if signedIn();
+        allow create: if isOwner(uid)
+          || (isOwner(targetUid) && exists(/databases/$(database)/documents/users/$(targetUid)/followRequests/$(uid)));
+        allow delete: if isOwner(uid) || isOwner(targetUid);
+      }
+
+      // Who follows this user. Public accounts: anyone may add themselves. Private accounts:
+      // the owner adds approved requesters.
+      match /followers/{followerUid} {
+        allow read: if signedIn();
+        allow create: if (isOwner(followerUid) && !blockedBy(uid) && get(userDoc(uid)).data.isPrivate == false)
+          || (isOwner(uid) && exists(/databases/$(database)/documents/users/$(uid)/followRequests/$(followerUid)));
+        allow delete: if isOwner(followerUid) || isOwner(uid);
+      }
+
+      match /followRequests/{requesterUid} {
+        allow read: if isOwner(uid) || isOwner(requesterUid);
+        allow create: if isOwner(requesterUid) && requesterUid != uid && !blockedBy(uid);
+        allow delete: if isOwner(uid) || isOwner(requesterUid);
+      }
+
+      match /likes/{postId} {
+        allow read, create, delete: if isOwner(uid);
+      }
+
+      match /saved/{postId} {
+        allow read, create, delete: if isOwner(uid);
+      }
+
+      match /notifications/{notificationId} {
+        allow read, delete: if isOwner(uid);
+        allow update: if isOwner(uid) && changed().hasOnly(['read']);
+        allow create: if false;
+      }
+
+      match /fcmTokens/{token} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /blocked/{targetUid} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && targetUid != uid;
+      }
+
+      // ---- shop (private to the user)
+
+      match /wishlist/{productId} {
+        allow read, create, delete: if isOwner(uid);
+      }
+
+      // Cart prices are only a preview: checkout re-prices every line from /products.
+      match /cart/{itemKey} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && incoming().keys().hasOnly(['product', 'variant', 'quantity', 'addedAt'])
+          && incoming().quantity is int && incoming().quantity >= 1 && incoming().quantity <= 10
+          && incoming().variant is string && incoming().variant.size() <= 30
+          && incoming().product.id is string
+          && (itemKey == incoming().product.id || itemKey.matches(incoming().product.id + '__.+'));
+      }
+
+      // ---- rewards (written only by Cloud Functions)
+
+      match /coupons/{couponId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      match /boxes/{day} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      match /addresses/{addressId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && incoming().keys().hasOnly(['name', 'phone', 'line1', 'line2', 'city', 'state', 'pincode'])
+          && incoming().name is string && incoming().name.size() <= 60
+          && incoming().phone is string && incoming().phone.matches('^[0-9]{10}$')
+          && incoming().line1 is string && incoming().line1.size() <= 120
+          && incoming().line2 is string && incoming().line2.size() <= 120
+          && incoming().city is string && incoming().city.size() <= 40
+          && incoming().state is string && incoming().state.size() <= 40
+          && incoming().pincode is string && incoming().pincode.matches('^[0-9]{6}$');
+      }
+    }
+
+    // Username claims: one document per handle, owned by the claiming user.
+    match /usernames/{username} {
+      allow read: if signedIn();
+      allow create: if signedIn() && incoming().uid == me();
+      allow delete: if signedIn() && resource.data.uid == me();
+      allow update: if false;
+    }
+
+    // ------------------------------------------------------------ posts
+
+    function canSeePost(post) {
+      return signedIn() && (post.visibility == 'public' || post.authorId == me() || isFollower(post.authorId));
+    }
+
+    match /posts/{postId} {
+      allow read: if canSeePost(resource.data);
+
+      allow create: if signedIn()
+        && incoming().authorId == me()
+        && incoming().author.uid == me()
+        && incoming().type in ['Post', 'Reel']
+        && incoming().visibility in ['public', 'followers']
+        && incoming().caption is string && incoming().caption.size() <= 2200
+        && incoming().media is list && incoming().media.size() >= 1 && incoming().media.size() <= 10
+        && incoming().tags is list && incoming().tags.size() <= 30
+        && incoming().get('products', []) is list && incoming().get('products', []).size() <= 5
+        && incoming().get('hidden', false) == false
+        && incoming().likeCount == 0
+        && incoming().commentCount == 0
+        && incoming().shareCount == 0;
+
+      // Authors may edit the caption/location; counters belong to Cloud Functions.
+      allow update: if signedIn() && resource.data.authorId == me()
+        && changed().hasOnly(['caption', 'location', 'tags']);
+
+      allow delete: if signedIn() && resource.data.authorId == me();
+
+      match /likes/{likerUid} {
+        allow read: if signedIn();
+        allow create, delete: if isOwner(likerUid)
+          && canSeePost(get(/databases/$(database)/documents/posts/$(postId)).data);
+      }
+
+      match /comments/{commentId} {
+        allow read: if canSeePost(get(/databases/$(database)/documents/posts/$(postId)).data);
+        allow create: if signedIn()
+          && incoming().authorId == me()
+          && incoming().author.uid == me()
+          && incoming().text is string && incoming().text.size() >= 1 && incoming().text.size() <= 500
+          && canSeePost(get(/databases/$(database)/documents/posts/$(postId)).data)
+          && !blockedBy(get(/databases/$(database)/documents/posts/$(postId)).data.authorId);
+        allow delete: if signedIn() && (resource.data.authorId == me()
+          || get(/databases/$(database)/documents/posts/$(postId)).data.authorId == me());
+      }
+    }
+
+    // ------------------------------------------------------------ stories
+
+    match /stories/{storyId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && incoming().authorId == me()
+        && incoming().author.uid == me()
+        && incoming().expiresAt is int
+        && incoming().expiresAt <= request.time.toMillis() + 25 * 60 * 60 * 1000;
+      allow delete: if signedIn() && resource.data.authorId == me();
+    }
+
+    // ------------------------------------------------------------ chat
+
+    function isMember(convo) { return signedIn() && me() in convo.memberIds; }
+
+    match /conversations/{cid} {
+      allow read: if signedIn() && me() in resource.data.memberIds;
+
+      // One-to-one only; the id must be the two member uids sorted and joined with "_".
+      allow create: if signedIn()
+        && incoming().memberIds is list && incoming().memberIds.size() == 2
+        && me() in incoming().memberIds
+        && cid == incoming().memberIds[0] + '_' + incoming().memberIds[1]
+        && incoming().memberIds[0] < incoming().memberIds[1]
+        && incoming().lastMessageAt == 0;
+
+      // Members may only touch their own read state and typing flag; previews and
+      // unread counts for others are written by Cloud Functions.
+      allow update: if isMember(resource.data)
+        && changed().hasOnly(['unreadCounts', 'lastReadAt', 'typing'])
+        && incoming().unreadCounts.diff(resource.data.get('unreadCounts', {})).affectedKeys().hasOnly([me()])
+        && incoming().get('unreadCounts', {}).get(me(), 0) == 0
+        && incoming().get('lastReadAt', {}).diff(resource.data.get('lastReadAt', {})).affectedKeys().hasOnly([me()])
+        && incoming().get('typing', {}).diff(resource.data.get('typing', {})).affectedKeys().hasOnly([me()]);
+
+      allow delete: if false;
+
+      match /messages/{mid} {
+        function convo() { return get(/databases/$(database)/documents/conversations/$(cid)).data; }
+
+        allow read: if isMember(convo());
+        allow create: if isMember(convo())
+          && !blockedBy(convo().memberIds[0]) && !blockedBy(convo().memberIds[1])
+          && incoming().senderId == me()
+          && incoming().text is string && incoming().text.size() <= 2000
+          && (incoming().text.size() > 0 || incoming().get('attachment', null) != null)
+          && incoming().unsent == false;
+        // Senders may unsend (blank out) their own messages.
+        allow update: if isMember(convo()) && resource.data.senderId == me()
+          && changed().hasOnly(['unsent', 'text', 'attachment'])
+          && incoming().unsent == true && incoming().text == '';
+        allow delete: if false;
+      }
+    }
+
+    // ------------------------------------------------------------ shop
+
+    function isSellerAccount() {
+      return signedIn() && get(userDoc(me())).data.accountMode == 'Seller';
+    }
+
+    function validListing(d) {
+      return d.title is string && d.title.size() >= 3 && d.title.size() <= 80
+        && d.brand is string && d.brand.size() <= 40
+        && d.description is string && d.description.size() <= 1000
+        && d.category in ['Mobiles', 'Electronics', 'Fashion', 'Beauty', 'Appliances', 'Groceries', 'KidsToys', 'More']
+        && d.price is int && d.price >= 10 && d.price <= 500000
+        && d.mrp is int && d.mrp >= d.price && d.mrp <= 5000000
+        && d.stock is int && d.stock >= 0 && d.stock <= 9999
+        && d.images is list && d.images.size() >= 1 && d.images.size() <= 5
+        && d.variants is list && d.variants.size() <= 12
+        && d.highlights is list && d.highlights.size() <= 6
+        && d.keywords is list && d.keywords.size() <= 200
+        && d.seller.uid == me()
+        && d.isDrop == false;
+    }
+
+    // Catalogue: readable by everyone signed in. Sellers manage their own listings; sales
+    // counters and ratings belong to Cloud Functions, and Drops are picked by admins.
+    match /products/{productId} {
+      allow read: if signedIn();
+      allow create: if isSellerAccount()
+        && incoming().sellerId == me()
+        && validListing(incoming())
+        && incoming().soldCount == 0 && incoming().rating == 0 && incoming().ratingCount == 0;
+      allow update: if isSellerAccount()
+        && resource.data.sellerId == me()
+        && incoming().sellerId == me()
+        && !changed().hasAny(['soldCount', 'rating', 'ratingCount', 'createdAt', 'isDrop'])
+        && validListing(incoming());
+      allow delete: if signedIn() && resource.data.sellerId == me();
+    }
+
+    // Orders are created, paid, cancelled and advanced only by Cloud Functions. Buyers and the
+    // sellers whose items are in the order can read it.
+    match /orders/{orderId} {
+      allow read: if signedIn() && (resource.data.buyerId == me() || me() in resource.data.get('sellerIds', []));
+      allow write: if false;
+    }
+
+    // ------------------------------------------------------------ Near
+
+    // Coarse positions only: coordinates must be rounded to 2 decimals (~1 km). Under-18s and
+    // private accounts can't appear on Near.
+    function coarse(v) { return v is number && math.abs(v * 100 - math.round(v * 100)) < 0.000001; }
+    function validSpot(d) {
+      return d.geohash is string && d.geohash.size() == 6
+        && coarse(d.lat) && d.lat >= -90 && d.lat <= 90
+        && coarse(d.lng) && d.lng >= -180 && d.lng <= 180;
+    }
+
+    match /near/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid)
+        && validSpot(incoming())
+        && incoming().user.uid == uid
+        && get(userDoc(uid)).data.isMinor == false
+        && get(userDoc(uid)).data.isPrivate == false;
+      allow delete: if isOwner(uid);
+    }
+
+    match /stores/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid)
+        && validSpot(incoming())
+        && incoming().seller.uid == uid
+        && get(userDoc(uid)).data.accountMode == 'Seller';
+      allow delete: if isOwner(uid);
+    }
+
+    // ------------------------------------------------------------ reports (write-only for clients)
+
+    match /reports/{reportId} {
+      allow create: if signedIn()
+        && incoming().reporterId == me()
+        && incoming().targetType in ['Post', 'Comment', 'User', 'Message', 'Product']
+        && incoming().targetId is string && incoming().targetId.size() > 0 && incoming().targetId.size() <= 128
+        && incoming().reason in ['Spam', 'Harassment', 'Hate', 'Nudity', 'Violence', 'SelfHarm', 'Fake', 'Counterfeit', 'Other']
+        && incoming().details is string && incoming().details.size() <= 500
+        && incoming().status == 'open';
+      allow read, update, delete: if false;
+    }
+
+    // ------------------------------------------------------------ tags (Cloud Functions only)
+
+    match /tags/{tag} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+  }
+}

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar notification icon (white mark) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="1600"
+    android:viewportHeight="1600">
+    <group
+        android:translateX="71"
+        android:translateY="195">
+        <path
+            android:pathData="M370,762 L283,762 L195,850 L150,850 L150,315 A165,165 0 0 1 315,150 L665,150 A165,165 0 0 1 830,315 L830,588 A174,174 0 0 1 660,762"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="120"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M690,462 L650,462 A135,135 0 0 0 515,597 L515,935 A125,125 0 0 0 640,1060 L1012,1060 L1157,915"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="120"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M982,462 L1010,462 L1157,609"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="120"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:fillType="evenOdd"
+            android:pathData="M1115,485 L1352.4,719.6 A60,60 0 0 1 1352.4,804.4 L1115,1045 Z M1191,762 A62,62 0 1 0 1315,762 A62,62 0 1 0 1191,762 Z"
+            android:fillColor="#FFFFFFFF" />
+        <path
+            android:pathData="M1135,128 Q1158,218 1247,243 Q1158,268 1135,357 Q1112,268 1023,243 Q1112,218 1135,128 Z"
+            android:fillColor="#FFFFFFFF" />
+    </group>
+</vector>

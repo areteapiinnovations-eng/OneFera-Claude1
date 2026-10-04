@@ -1,0 +1,13 @@
+package com.onefera.app.core.common
+
+/** Public web links. Point onefera.app at the marketing site / deep-link handler when it is live. */
+object AppLinks {
+    const val WEB_BASE = "https://onefera.app"
+    fun profile(username: String) = "$WEB_BASE/@$username"
+    fun post(postId: String) = "$WEB_BASE/p/$postId"
+    fun tag(tag: String) = "$WEB_BASE/tag/$tag"
+    fun product(productId: String) = "$WEB_BASE/shop/$productId"
+    const val TERMS = "$WEB_BASE/terms"
+    const val PRIVACY = "$WEB_BASE/privacy"
+    const val GUIDELINES = "$WEB_BASE/guidelines"
+}

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+. Accounts live in the cloud, so local data (sessions, demo data, caches) is never backed up or transferred. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="datastore/" />
+        <exclude domain="file" path="demo_media/" />
+        <exclude domain="database" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="datastore/" />
+        <exclude domain="file" path="demo_media/" />
+        <exclude domain="database" path="." />
+    </device-transfer>
+</data-extraction-rules>
