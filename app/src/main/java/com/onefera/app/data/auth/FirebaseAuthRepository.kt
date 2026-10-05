@@ -1,9 +1,11 @@
 package com.onefera.app.data.auth
 
+import android.util.Log
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
@@ -78,16 +80,34 @@ class FirebaseAuthRepository @Inject constructor(
     } catch (e: UserFacingException) {
         Result.failure(e)
     } catch (e: Exception) {
+        Log.e(TAG, "Firebase Auth request failed", e)
         Result.failure(UserFacingException(e.toFriendlyMessage(), e))
     }
 
-    private fun Exception.toFriendlyMessage(): String = when (this) {
-        is FirebaseAuthWeakPasswordException -> "That password is too easy to guess. Try a stronger one."
-        is FirebaseAuthUserCollisionException -> "An account with this email already exists. Try signing in."
-        is FirebaseAuthInvalidUserException -> "We couldn't find an account with that email."
-        is FirebaseAuthInvalidCredentialsException -> "Email or password is incorrect."
-        is FirebaseTooManyRequestsException -> "Too many attempts. Take a breather and try again soon."
-        is FirebaseNetworkException -> "You're offline. Check your connection and try again."
-        else -> "Something went wrong. Please try again."
+    private fun Exception.toFriendlyMessage(): String {
+        val code = (this as? FirebaseAuthException)?.errorCode.orEmpty()
+        val text = "$code ${message.orEmpty()}"
+        return when {
+            this is FirebaseAuthWeakPasswordException -> "That password is too easy to guess. Try a stronger one."
+            this is FirebaseAuthUserCollisionException -> "An account with this email already exists. Try signing in."
+            this is FirebaseAuthInvalidUserException -> "We couldn't find an account with that email."
+            this is FirebaseAuthInvalidCredentialsException -> "Email or password is incorrect."
+            this is FirebaseTooManyRequestsException -> "Too many attempts. Take a breather and try again soon."
+            this is FirebaseNetworkException -> "You're offline. Check your connection and try again."
+            // Setup problems in the Firebase project, worded so whoever runs the project can fix them.
+            "OPERATION_NOT_ALLOWED" in text ->
+                "Email sign-up isn't enabled for this app yet (Firebase: Authentication → Sign-in method → Email/Password)."
+            "CONFIGURATION_NOT_FOUND" in text ->
+                "Sign-in isn't set up for this app yet (Firebase: Authentication → Get started)."
+            "API key" in text || "API_KEY" in text ->
+                "This app's Firebase API key was rejected. Check the key's restrictions in Google Cloud → Credentials."
+            "app-check" in text.lowercase() || "recaptcha" in text.lowercase() || "app attestation" in text.lowercase() ->
+                "This app couldn't be verified by Firebase (App Check / reCAPTCHA). Check the project's App Check settings."
+            else -> "Something went wrong. Please try again." + (code.ifEmpty { null }?.let { " ($it)" } ?: "")
+        }
+    }
+
+    private companion object {
+        const val TAG = "OneFeraAuth"
     }
 }

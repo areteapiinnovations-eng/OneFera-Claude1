@@ -1,9 +1,11 @@
 package com.onefera.app.data.user
 
 import android.net.Uri
+import android.util.Log
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.storage.FirebaseStorage
 import com.onefera.app.data.backend.UserFacingException
 import com.onefera.app.data.model.AccountMode
@@ -114,11 +116,21 @@ class FirestoreUserRepository @Inject constructor() : UserRepository {
     } catch (e: UserFacingException) {
         Result.failure(e)
     } catch (e: Exception) {
+        Log.e(TAG, "Firestore profile request failed", e)
         val cause = generateSequence<Throwable>(e) { it.cause }.firstOrNull { it is UserFacingException }
-        Result.failure(cause ?: UserFacingException("Couldn't save right now. Check your connection and try again.", e))
+        val code = generateSequence<Throwable>(e) { it.cause }.filterIsInstance<FirebaseFirestoreException>().firstOrNull()?.code
+        val message = when (code) {
+            FirebaseFirestoreException.Code.PERMISSION_DENIED ->
+                "The server refused to save your profile. The Firestore security rules may not be deployed yet."
+            FirebaseFirestoreException.Code.NOT_FOUND ->
+                "The app's database isn't set up yet (Firebase: Firestore Database → Create database)."
+            else -> "Couldn't save right now. Check your connection and try again." + (code?.let { " ($it)" } ?: "")
+        }
+        Result.failure(cause ?: UserFacingException(message, e))
     }
 
     private companion object {
+        const val TAG = "OneFeraProfile"
         const val USERS = "users"
         const val USERNAMES = "usernames"
     }
