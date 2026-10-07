@@ -29,3 +29,4 @@ g com/google/android/gms play-services-location
 g androidx/paging paging-compose
 g androidx/camera camera-camera2
 g com/android/billingclient billing
+g com/google/android/play app-update-ktx

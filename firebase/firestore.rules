@@ -402,6 +402,15 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
+    // ------------------------------------------------------------ app config (console only)
+
+    // Release control (minimum/latest version). Readable before sign-in so an outdated build
+    // can be stopped at the login screen too; edited in the Firebase console.
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // ------------------------------------------------------------ tags (Cloud Functions only)
 
     match /tags/{tag} {
