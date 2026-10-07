@@ -301,7 +301,6 @@ private fun StatusView(
     onMode: (AccountMode) -> Unit,
 ) {
     val actions = LocalAppActions.current
-    val date = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
     val status = when {
         application != null -> application.status
         profile.accountMode == AccountMode.Seller -> SellerStatus.Approved
@@ -312,7 +311,7 @@ private fun StatusView(
             SellerStatus.Pending -> StatusCard(
                 "⏳",
                 "Registration under review",
-                "We're checking your details" + (application?.submittedAt?.takeIf { it > 0 }?.let { " (submitted ${date.format(Date(it))})" } ?: "") +
+                "We're checking your details" + (application?.submittedAt?.takeIf { it > 0 }?.let { " (submitted ${submittedDate(it)})" } ?: "") +
                     ". You'll be able to switch to Seller mode as soon as it's approved.",
                 tag = "Pending",
             )
@@ -351,6 +350,8 @@ private fun StatusView(
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
 }
+
+private fun submittedDate(millis: Long): String = SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(millis))
 
 @Composable
 private fun StatusCard(emoji: String, title: String, body: String, tag: String? = null) {
