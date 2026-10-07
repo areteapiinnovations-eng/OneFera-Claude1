@@ -152,15 +152,32 @@ back_to_tabs() {
   done
 }
 
-# Seller mode: switch the account to Seller and open the hub and the listing editor.
+# Seller mode: register as a seller (demo mode approves valid forms at once), switch to
+# Seller mode and open the hub and the listing editor. Without a keyboard the form can't be
+# filled, so those images stop at the registration screen.
 back_to_tabs
 tap_text "You";                       sleep 2
 tap_text "Profile menu";              sleep 2
-tap_text "Switch to seller";          sleep 3
-tap_text "Profile menu";              sleep 2
-tap_text "Seller hub";                shot 23-seller-hub 4
-tap_text "New listing";               shot 24-listing-editor 3
-timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 2
+tap_text "Become a Seller";           shot 23a-become-seller 3
+tap_text "Start registration";        shot 23b-seller-form 3
+if [ -n "$IME" ] && [ "$IME" != "null" ]; then
+  type_into "Store name" "Asha Studio"
+  type_into "PAN" "ABCDE1234F"
+  type_into "Mobile number" "9876543210"
+  type_into "Address" "12 MG Road"
+  type_into "City" "Pune"
+  type_into "Pincode" "411001"
+  type_into "State" "Maharashtra"
+  type_into "UPI ID (name@bank)" "asha@okhdfc"
+  tap_text "I confirm*";                sleep 1
+  tap_text "Submit registration";       shot 23c-seller-approved 5
+  tap_text "Switch to Seller mode";     sleep 3
+  tap_text "Open Seller hub";           shot 23-seller-hub 4
+  tap_text "New listing";               shot 24-listing-editor 3
+  timeout 10 adb shell input keyevent KEYCODE_BACK; sleep 2
+else
+  echo "::notice::No keyboard on this emulator image; skipping the seller registration steps"
+fi
 
 # Rewards: the daily check-in ran at login, so today's Mystery Box is ready.
 back_to_tabs

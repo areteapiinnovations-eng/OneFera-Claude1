@@ -12,6 +12,7 @@ import com.onefera.app.data.auth.SessionState
 import com.onefera.app.data.backend.ApplicationScope
 import com.onefera.app.data.backend.UserFacingException
 import com.onefera.app.data.model.AccountMode
+import com.onefera.app.data.model.Rewards
 import com.onefera.app.data.model.ProfileUpdate
 import com.onefera.app.data.model.UserProfile
 import com.onefera.app.data.user.UserRepository
@@ -181,6 +182,8 @@ class DemoBackend @Inject constructor(
             verified = true,
             auraPoints = 525,
             streakDays = 3,
+            // Checked in yesterday, so today's check-in continues the streak to day 4.
+            lastCheckInDay = Rewards.dayKey(System.currentTimeMillis() - 24 * 60 * 60 * 1000L),
             postsCount = 6,
             followersCount = 11,
             followingCount = 14,
