@@ -40,7 +40,15 @@ class LocationProvider @Inject constructor(@ApplicationContext private val conte
                 suspendCancellableCoroutine<Location?> { cont ->
                     val signal = CancellationSignal()
                     cont.invokeOnCancellation { signal.cancel() }
-                    LocationManagerCompat.getCurrentLocation(manager, provider, signal, EXECUTOR) { cont.resume(it) }
+                    // Before Android 12, the GPS provider needs fine location; with coarse only it
+                    // throws instead of answering, so treat that provider as having no fix.
+                    try {
+                        LocationManagerCompat.getCurrentLocation(manager, provider, signal, EXECUTOR) { if (cont.isActive) cont.resume(it) }
+                    } catch (e: SecurityException) {
+                        cont.resume(null)
+                    } catch (e: IllegalArgumentException) {
+                        cont.resume(null)
+                    }
                 }
             }
         }

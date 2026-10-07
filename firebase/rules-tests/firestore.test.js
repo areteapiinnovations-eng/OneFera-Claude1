@@ -1,8 +1,9 @@
 // Firestore security-rules tests. Run with `npm test` (starts the emulators).
 import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import { assertFails, assertSucceeds, initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { arrayUnion, collection, deleteDoc, doc, documentId, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { arrayUnion, collection, deleteDoc, doc, documentId, endAt, getDoc, getDocs, limit, orderBy, query, serverTimestamp, startAt, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 
 let env;
 
@@ -386,6 +387,22 @@ describe('near', () => {
     await assertFails(setDoc(doc(db('bob'), 'near/alice'), spot('alice')));
     await assertSucceeds(getDoc(doc(db('bob'), 'near/alice')));
     await assertSucceeds(deleteDoc(doc(db('alice'), 'near/alice')));
+  });
+
+  it('two people side by side find each other with the app query', async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'users/alice'), profile('alice'));
+      await setDoc(doc(f, 'users/bob'), profile('bob'));
+    });
+    await assertSucceeds(setDoc(doc(db('alice'), 'near/alice'), spot('alice')));
+    await assertSucceeds(setDoc(doc(db('bob'), 'near/bob'), spot('bob')));
+    // Same query the app runs per covering cell: geohash prefix range.
+    const around = (uid) => getDocs(query(collection(db(uid), 'near'), orderBy('geohash'), startAt('te7u6'), endAt('te7u6~'), limit(100)));
+    const seenByBob = await assertSucceeds(around('bob'));
+    const seenByAlice = await assertSucceeds(around('alice'));
+    assert.ok(seenByBob.docs.some((d) => d.id === 'alice'));
+    assert.ok(seenByAlice.docs.some((d) => d.id === 'bob'));
+    await assertFails(getDocs(query(collection(db(null), 'near'), orderBy('geohash'), startAt('te7u6'), endAt('te7u6~'))));
   });
 
   it('only lets sellers list a store', async () => {

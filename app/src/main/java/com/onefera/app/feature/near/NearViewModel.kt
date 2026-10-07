@@ -62,6 +62,7 @@ class NearViewModel @Inject constructor(
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages: Flow<String> = _messages.receiveAsFlow()
     private var loadJob: Job? = null
+    private var locateJob: Job? = null
 
     val state: StateFlow<NearUiState> = combine(
         local,
@@ -80,10 +81,11 @@ class NearViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
 
+    /** Called every time Near is shown: re-reads the position so moving around (or a better fix) is picked up. */
     fun start() {
         val granted = locations.hasPermission()
         local.update { it.copy(hasPermission = granted) }
-        if (granted && local.value.location == null) locate()
+        if (granted) locate()
     }
 
     fun onPermissionResult(granted: Boolean) {
@@ -92,19 +94,22 @@ class NearViewModel @Inject constructor(
     }
 
     private fun locate() {
-        local.update { it.copy(loading = true) }
-        viewModelScope.launch {
+        if (locateJob?.isActive == true) return
+        local.update { it.copy(loading = it.location == null) }
+        locateJob = viewModelScope.launch {
             val found = locations.current()
             // Emulators and some indoor devices have no fix; the demo backend falls back to a demo spot.
             val location = found ?: if (config.isDemoMode) DEMO_SPOT else null
             if (location == null) {
                 local.update { it.copy(loading = false) }
-                _messages.send("Couldn't get your location. Check that location is on and try again.")
+                // Keep showing the last known area rather than wiping the list.
+                if (local.value.location == null) _messages.send("Couldn't get your location. Check that location is on and try again.")
                 return@launch
             }
+            val moved = location != local.value.location
             local.update { it.copy(location = location, usingDemoLocation = found == null) }
             near.refresh(location)
-            load()
+            if (moved || loadJob?.isActive != true) load()
         }
     }
 
@@ -125,9 +130,15 @@ class NearViewModel @Inject constructor(
         local.update { it.copy(loading = true) }
         loadJob = viewModelScope.launch {
             if (s.mode == NearMode.People) {
-                near.people(location, s.radius)
-                    .onSuccess { list -> local.update { it.copy(people = list) } }
-                    .onFailure { _messages.send(it.message ?: "Couldn't load people nearby.") }
+                // Live: stays subscribed while Near is open, so a friend switching on Visible appears right away.
+                near.people(location, s.radius).collect { result ->
+                    result
+                        .onSuccess { list -> local.update { it.copy(people = list, loading = false) } }
+                        .onFailure {
+                            local.update { it.copy(loading = false) }
+                            _messages.send(it.message ?: "Couldn't load people nearby.")
+                        }
+                }
             } else {
                 near.stores(location, s.radius)
                     .onSuccess { list -> local.update { it.copy(stores = list) } }

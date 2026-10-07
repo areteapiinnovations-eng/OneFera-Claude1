@@ -1,5 +1,6 @@
 package com.onefera.app.data.firebase
 
+import android.util.Log
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -19,7 +20,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -115,18 +119,41 @@ class FirestoreNearRepository @Inject constructor(
 
     private suspend fun around(collection: String, location: LatLng, radius: NearRadius): List<DocumentSnapshot> = coroutineScope {
         Geo.coveringCells(location, radius.precision).map { cell ->
-            async { db.collection(collection).orderBy("geohash").startAt(cell).endAt(cell + "~").limit(100).get().await().documents }
+            async { db.collection(collection).orderBy("geohash").startAt(cell).endAt(cell + "~").limit(CELL_LIMIT).get().await().documents }
         }.awaitAll().flatten().distinctBy { it.id }
     }
 
-    override suspend fun people(location: LatLng, radius: NearRadius): Result<List<NearbyPerson>> = runFriendly {
+    override fun people(location: LatLng, radius: NearRadius): Flow<Result<List<NearbyPerson>>> = callbackFlow {
         val uid = auth.currentUid()
+        val cells = Geo.coveringCells(location, radius.precision)
+        // One live listener per cell, so people appear, move and disappear without a refresh.
+        val latest = arrayOfNulls<List<DocumentSnapshot>>(cells.size)
+        val registrations = cells.mapIndexed { i, cell ->
+            near.orderBy("geohash").startAt(cell).endAt(cell + "~").limit(CELL_LIMIT).addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(TAG, "Near listener failed: ${error.code}", error)
+                    // Firestore stops a listener after an error; report once and end, so the screen can retry.
+                    trySend(Result.failure(UserFacingException("Couldn't load people nearby. Check your connection and try again.")))
+                    close()
+                    return@addSnapshotListener
+                }
+                latest[i] = snapshot?.documents.orEmpty()
+                if (latest.all { it != null }) {
+                    trySend(Result.success(toPeople(latest.flatMap { it.orEmpty() }, uid, location, radius)))
+                }
+            }
+        }
+        awaitClose { registrations.forEach { it.remove() } }
+    }.catch { emit(Result.failure(it)) }
+
+    private fun toPeople(docs: List<DocumentSnapshot>, uid: String, location: LatLng, radius: NearRadius): List<NearbyPerson> {
         val staleBefore = System.currentTimeMillis() - STALE_MS
-        around("near", location, radius)
+        return docs.distinctBy { it.id }
             .filter { it.id != uid }
             .mapNotNull { d ->
                 val at = LatLng(d.getDouble("lat") ?: return@mapNotNull null, d.getDouble("lng") ?: return@mapNotNull null)
-                val updated = d.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                // A just-written serverTimestamp can still be pending; treat it as "now".
+                val updated = d.getTimestamp("updatedAt", DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)?.toDate()?.time ?: 0L
                 if (updated < staleBefore) return@mapNotNull null
                 NearbyPerson(
                     user = (d.get("user") as? Map<*, *>).toUserSummary(),
@@ -161,5 +188,7 @@ class FirestoreNearRepository @Inject constructor(
     private companion object {
         /** People who haven't opened Near in a day drop off the list. */
         const val STALE_MS = 24 * 60 * 60 * 1000L
+        const val CELL_LIMIT = 100L
+        const val TAG = "FirestoreNear"
     }
 }
