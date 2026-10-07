@@ -91,6 +91,8 @@ data class PostCardCallbacks(
     val onEdit: () -> Unit = {},
     /** Author only: switch comments on or off. */
     val onToggleComments: () -> Unit = {},
+    /** Set when the viewer doesn't follow the author yet: shows a Follow button in the header. */
+    val onFollow: (() -> Unit)? = null,
 )
 
 @Composable
@@ -226,6 +228,14 @@ private fun PostHeader(post: Post, isMine: Boolean, callbacks: PostCardCallbacks
                     .firstOrNull() ?: "@${post.author.username}"
                 Text(sub, style = MaterialTheme.typography.labelMedium, color = extras.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+        }
+        callbacks.onFollow?.takeIf { !isMine }?.let { follow ->
+            Text(
+                if (post.author.isPrivate) "Request" else "Follow",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = follow).padding(horizontal = 10.dp, vertical = 6.dp),
+            )
         }
         Box {
             IconButton(onClick = { menu = true }) {

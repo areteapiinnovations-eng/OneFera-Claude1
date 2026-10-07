@@ -17,7 +17,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getMessaging } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
 import { setGlobalOptions } from "firebase-functions/v2";
-import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { GoogleAuth } from "google-auth-library";
@@ -671,8 +671,6 @@ export const openMysteryBox = onCall(async (request) => {
     const allowed = hasPlusPerks(user.get("membershipPlan"), user.get("membershipExpiresAt")) ? 2 : 1;
     const opened = (box.get("opened") as number | undefined) ?? 0;
     if (opened >= allowed) throw new HttpsError("resource-exhausted", "You've opened today's boxes. New ones drop at midnight ✨");
-    tx.set(boxRef, { opened: opened + 1 }, { merge: true });
-
     const roll = Math.floor(Math.random() * 100);
     const expiresAt = now + COUPON_DAYS * DAY;
     let aura = 0;
@@ -695,6 +693,11 @@ export const openMysteryBox = onCall(async (request) => {
       const next = Math.max(0, Math.min(AURA_MAX, ((user.get("auraPoints") as number | undefined) ?? 0) + aura));
       tx.update(ref, { auraPoints: next });
     }
+    // Same wording as MysteryReward.headline in the app, so the Rewards screen can list today's wins.
+    const won = coupon
+      ? `${coupon.kind === "Flat" ? `₹${coupon.value} off` : coupon.kind === "Percent" ? `${coupon.value}% off (up to ₹${coupon.maxDiscount})` : "Free delivery"} coupon`
+      : `+${aura} Aura`;
+    tx.set(boxRef, { opened: opened + 1, won: FieldValue.arrayUnion(`${won} · #${opened + 1}`) }, { merge: true });
     return { aura, coupon };
   });
 });
@@ -801,6 +804,7 @@ async function purgeUserReferences(uid: string): Promise<void> {
   await Promise.all([
     db.collection("near").doc(uid).delete().catch(() => undefined),
     db.collection("stores").doc(uid).delete().catch(() => undefined),
+    db.collection("sellerApplications").doc(uid).delete().catch(() => undefined),
     bucket.deleteFiles({ prefix: `stories/${uid}/` }).catch(() => undefined),
     bucket.deleteFiles({ prefix: `avatars/${uid}/` }).catch(() => undefined),
   ]);
@@ -841,6 +845,97 @@ export const onAuthUserDeleted = functionsV1.region("asia-south1").auth.user().o
   await deleteOwnedContent(user.uid);
   await purgeUserReferences(user.uid);
   logger.info(`Deleted content of auth-deleted user ${user.uid}`);
+});
+
+// ---------------------------------------------------------------- seller onboarding
+
+/**
+ * Seller registration. Everything the app checked is checked again here; the applicant can read
+ * their `sellerApplications/{uid}` document but never write it. With SELLER_APPROVAL=manual in
+ * functions/.env, applications wait as "Pending" until an admin sets `status` to "Approved" or
+ * "Rejected" (with `rejectionReason`) in the console; otherwise valid applications are approved
+ * straight away. `users/{uid}.sellerStatus` follows the application (onSellerApplicationWritten).
+ */
+const GST_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+function gstinValid(g: string): boolean {
+  if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(g)) return false;
+  let sum = 0;
+  for (let i = 0; i < 14; i++) {
+    const p = GST_CHARS.indexOf(g[i]) * (i % 2 === 0 ? 1 : 2);
+    sum += Math.floor(p / 36) + (p % 36);
+  }
+  return GST_CHARS[(36 - (sum % 36)) % 36] === g[14];
+}
+
+const SELLER_CATEGORIES = ["Mobiles", "Electronics", "Fashion", "Beauty", "Appliances", "Groceries", "KidsToys", "More"];
+const BUSINESS_TYPES = ["Individual", "Partnership", "Company"];
+
+export const submitSellerApplication = onCall(async (request) => {
+  const uid = requireUid(request.auth);
+  const d = (request.data ?? {}) as Record<string, unknown>;
+  const str = (k: string, max: number) => (typeof d[k] === "string" ? (d[k] as string).trim().slice(0, max) : "");
+  const a = {
+    storeName: str("storeName", 40), legalName: str("legalName", 80), businessType: str("businessType", 20),
+    category: str("category", 20), description: str("description", 300), phone: str("phone", 10), email: str("email", 120),
+    addressLine: str("addressLine", 120), city: str("city", 40), state: str("state", 40), pincode: str("pincode", 6),
+    gstin: str("gstin", 15).toUpperCase(), pan: str("pan", 10).toUpperCase(), payoutMethod: str("payoutMethod", 10),
+    upiId: str("upiId", 320), accountHolder: str("accountHolder", 80), accountNumber: str("accountNumber", 18), ifsc: str("ifsc", 11).toUpperCase(),
+  };
+  const problems: string[] = [];
+  if (a.storeName.length < 3) problems.push("store name");
+  if (a.legalName.length < 3) problems.push("legal name");
+  if (!BUSINESS_TYPES.includes(a.businessType)) problems.push("business type");
+  if (!SELLER_CATEGORIES.includes(a.category)) problems.push("category");
+  if (!/^[6-9][0-9]{9}$/.test(a.phone)) problems.push("phone");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a.email)) problems.push("email");
+  if (a.addressLine.length < 5 || a.city.length < 2 || a.state.length < 2) problems.push("address");
+  if (!/^[1-9][0-9]{5}$/.test(a.pincode)) problems.push("pincode");
+  if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(a.pan)) problems.push("PAN");
+  if (a.gstin && (!gstinValid(a.gstin) || a.gstin.slice(2, 12) !== a.pan)) problems.push("GSTIN");
+  if (a.payoutMethod === "Upi") {
+    if (!/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9]{1,64}$/.test(a.upiId)) problems.push("UPI ID");
+  } else if (a.payoutMethod === "Bank") {
+    if (a.accountHolder.length < 3 || !/^[0-9]{9,18}$/.test(a.accountNumber) || !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(a.ifsc)) problems.push("bank details");
+  } else {
+    problems.push("payout method");
+  }
+  if (d.acceptedTerms !== true) problems.push("seller terms");
+  if (problems.length) throw new HttpsError("invalid-argument", `Please check: ${problems.join(", ")}.`);
+
+  const user = await db.collection("users").doc(uid).get();
+  if (!user.exists) throw new HttpsError("failed-precondition", "Finish setting up your profile first.");
+  if (user.get("isMinor") === true) throw new HttpsError("failed-precondition", "You need to be 18 or older to sell on OneFera.");
+  const ref = db.collection("sellerApplications").doc(uid);
+  const existing = await ref.get();
+  if (existing.get("status") === "Approved") return { status: "Approved" };
+
+  const status = process.env.SELLER_APPROVAL === "manual" ? "Pending" : "Approved";
+  // Full payout details are kept for the payments team; the app only ever sees the last four digits.
+  await ref.set({
+    ...a,
+    accountNumber: a.payoutMethod === "Bank" ? a.accountNumber : "",
+    accountNumberMasked: a.payoutMethod === "Bank" ? `•••• ${a.accountNumber.slice(-4)}` : "",
+    acceptedTerms: true,
+    uid,
+    status,
+    rejectionReason: "",
+    submittedAt: FieldValue.serverTimestamp(),
+    reviewedAt: status === "Approved" ? FieldValue.serverTimestamp() : null,
+  });
+  return { status };
+});
+
+/** Keeps `users/{uid}.sellerStatus` in step with the application; a revoked seller drops back to Personal. */
+export const onSellerApplicationWritten = onDocumentWritten("sellerApplications/{uid}", async (event) => {
+  const { uid } = event.params;
+  const status = (event.data?.after?.get("status") as string | undefined) ?? "None";
+  const user = db.collection("users").doc(uid);
+  const snap = await user.get();
+  if (!snap.exists) return;
+  const update: Record<string, unknown> = { sellerStatus: status };
+  if (status === "Approved") update.storeName = event.data?.after?.get("storeName") ?? "";
+  if (status !== "Approved" && snap.get("accountMode") === "Seller") update.accountMode = "Personal";
+  await user.update(update);
 });
 
 // ---------------------------------------------------------------- Near

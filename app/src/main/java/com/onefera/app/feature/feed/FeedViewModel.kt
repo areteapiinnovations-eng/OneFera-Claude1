@@ -40,6 +40,7 @@ data class FeedUiState(
     val seenStoryIds: Set<String> = emptySet(),
     val suggestions: List<UserSummary> = emptyList(),
     val myUid: String? = null,
+    val following: Set<String> = emptySet(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -66,10 +67,10 @@ class FeedViewModel @Inject constructor(
     val state: StateFlow<FeedUiState> = combine(
         items,
         combine(stories.storyGroups(), blocked) { groups, hidden -> groups.filter { it.author.uid !in hidden } },
-        seenStories.seen,
+        combine(seenStories.seen, social.followingIds()) { seen, following -> seen to following },
         social.suggestions(),
         auth.session.map { (it as? SessionState.SignedIn)?.uid },
-    ) { scoped, storyGroups, seen, suggestions, uid ->
+    ) { scoped, storyGroups, (seen, following), suggestions, uid ->
         FeedUiState(
             loading = scoped == null,
             scope = scoped?.first ?: scope.value,
@@ -78,6 +79,7 @@ class FeedViewModel @Inject constructor(
             seenStoryIds = seen,
             suggestions = suggestions.take(10),
             myUid = uid,
+            following = following,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedUiState())
 

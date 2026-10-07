@@ -90,7 +90,13 @@ data class MysteryReward(val aura: Int = 0, val coupon: Coupon? = null) {
 data class CheckInResult(val streak: Int, val auraGained: Int, val alreadyCheckedIn: Boolean, val boxUnlocked: Boolean)
 
 /** Today's Mystery Box allowance. */
-data class BoxStatus(val checkedInToday: Boolean = false, val opened: Int = 0, val allowed: Int = 1) {
+data class BoxStatus(
+    val checkedInToday: Boolean = false,
+    val opened: Int = 0,
+    val allowed: Int = 1,
+    /** What today's boxes gave, e.g. "+25 Aura", "₹50 off coupon". */
+    val wonToday: List<String> = emptyList(),
+) {
     val available: Int get() = if (checkedInToday) (allowed - opened).coerceAtLeast(0) else 0
 }
 

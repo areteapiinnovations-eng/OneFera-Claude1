@@ -25,7 +25,7 @@ service cloud.firestore {
     function serverOwned() {
       return ['verified', 'auraPoints', 'streakDays', 'postsCount', 'followersCount',
               'followingCount', 'profileViews', 'createdAt', 'uid', 'email', 'birthDate', 'isMinor',
-              'lastCheckInDay', 'membershipPlan', 'membershipExpiresAt'];
+              'lastCheckInDay', 'membershipPlan', 'membershipExpiresAt', 'sellerStatus', 'storeName'];
     }
 
     function validProfileText(d) {
@@ -52,12 +52,16 @@ service cloud.firestore {
         && incoming().followersCount == 0
         && incoming().followingCount == 0
         && incoming().profileViews == 0
-        && incoming().accountMode in ['Personal', 'Seller'];
+        && incoming().accountMode == 'Personal'
+        && !incoming().keys().hasAny(['sellerStatus', 'storeName']);
 
+      // Seller mode needs an approved seller registration; accounts that were already sellers keep it.
       allow update: if isOwner(uid)
         && !changed().hasAny(serverOwned())
         && validProfileText(incoming())
-        && incoming().accountMode in ['Personal', 'Seller']
+        && (incoming().accountMode == 'Personal'
+          || (incoming().accountMode == 'Seller'
+            && (incoming().get('sellerStatus', 'None') == 'Approved' || resource.data.accountMode == 'Seller')))
         && incoming().isPrivate is bool;
 
       allow delete: if false;
@@ -150,6 +154,12 @@ service cloud.firestore {
           && incoming().state is string && incoming().state.size() <= 40
           && incoming().pincode is string && incoming().pincode.matches('^[0-9]{6}$');
       }
+    }
+
+    // Seller registrations: the applicant may read theirs; only Cloud Functions write them.
+    match /sellerApplications/{applicantUid} {
+      allow read: if isOwner(applicantUid);
+      allow write: if false;
     }
 
     // Username claims: one document per handle, owned by the claiming user.

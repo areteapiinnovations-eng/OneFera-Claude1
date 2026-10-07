@@ -79,6 +79,7 @@ class FirestoreRewardsRepository @Inject constructor(private val auth: AuthRepos
                         checkedInToday = profile.getString("lastCheckInDay") == today,
                         opened = box.getLong("opened")?.toInt() ?: 0,
                         allowed = Rewards.boxesPerDay(plan),
+                        wonToday = (box.get("won") as? List<*>)?.filterIsInstance<String>().orEmpty(),
                     )
                 }
             }

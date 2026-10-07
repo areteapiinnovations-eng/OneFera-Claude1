@@ -1,6 +1,7 @@
 package com.onefera.app.data.demo
 
 import com.onefera.app.data.model.AccountMode
+import com.onefera.app.data.model.SellerStatus
 import com.onefera.app.data.model.Comment
 import com.onefera.app.data.model.MediaType
 import com.onefera.app.data.model.Post
@@ -59,6 +60,7 @@ internal object DemoSeed {
         birthDate = "2003-01-01",
         isPrivate = isPrivate,
         accountMode = if (seller) AccountMode.Seller else AccountMode.Personal,
+        sellerStatus = if (seller) SellerStatus.Approved else SellerStatus.None,
         verified = verified,
         auraPoints = aura,
         streakDays = (aura / 60).coerceAtMost(30),

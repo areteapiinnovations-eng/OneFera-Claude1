@@ -26,6 +26,8 @@ data class AppActions(
     val openOrder: (orderId: String) -> Unit = {},
     val openWishlist: () -> Unit = {},
     val openSellerHub: () -> Unit = {},
+    /** Seller registration, or its status once submitted. */
+    val becomeSeller: () -> Unit = {},
     /** Opens the listing editor; an empty id creates a new listing. */
     val editListing: (productId: String) -> Unit = {},
     val openSellerOrder: (orderId: String) -> Unit = {},

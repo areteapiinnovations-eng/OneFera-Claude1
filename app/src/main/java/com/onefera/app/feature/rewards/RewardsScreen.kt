@@ -284,6 +284,13 @@ private fun MysteryBoxCard(box: BoxStatus, opening: Boolean, onOpen: () -> Unit)
                 )
             }
         }
+        if (box.wonToday.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("Today's wins", style = MaterialTheme.typography.labelLarge)
+            box.wonToday.forEach { win ->
+                Text("🎉 ${win.substringBefore(" · #")}", style = MaterialTheme.typography.bodySmall, color = extras.muted)
+            }
+        }
         Spacer(Modifier.height(12.dp))
         GradientButton(if (opening) "Opening…" else "Open box", onClick = onOpen, enabled = ready, loading = opening)
     }

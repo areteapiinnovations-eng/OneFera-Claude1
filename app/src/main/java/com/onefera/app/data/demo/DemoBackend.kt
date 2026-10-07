@@ -253,8 +253,13 @@ class DemoUserRepository @Inject constructor(private val backend: DemoBackend) :
             url
         }
 
-    override suspend fun setAccountMode(uid: String, mode: AccountMode): Result<Unit> =
-        backend.saveProfile(uid) { it.copy(accountMode = mode) }
+    override suspend fun setAccountMode(uid: String, mode: AccountMode): Result<Unit> = runCatching {
+        val profile = backend.profileNow(uid) ?: throw UserFacingException("Account not found.")
+        if (mode == AccountMode.Seller && !profile.canUseSellerMode) {
+            throw UserFacingException("Register as a seller first. Your store unlocks once it's approved.")
+        }
+        backend.saveProfile(uid) { it.copy(accountMode = mode) }.getOrThrow()
+    }
 
     override suspend fun setPrivate(uid: String, isPrivate: Boolean): Result<Unit> =
         backend.saveProfile(uid) { it.copy(isPrivate = isPrivate) }

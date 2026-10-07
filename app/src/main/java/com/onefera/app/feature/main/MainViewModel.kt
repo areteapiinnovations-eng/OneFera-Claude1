@@ -118,6 +118,10 @@ class MainViewModel @Inject constructor(
         val uid = s.uid ?: return
         val profile = s.profile ?: return
         val next = if (profile.accountMode == AccountMode.Seller) AccountMode.Personal else AccountMode.Seller
+        if (next == AccountMode.Seller && !profile.canUseSellerMode) {
+            _messages.tryEmit("Register as a seller first: Profile menu → Become a Seller")
+            return
+        }
         viewModelScope.launch {
             users.setAccountMode(uid, next)
                 .onSuccess {

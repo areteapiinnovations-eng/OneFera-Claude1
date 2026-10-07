@@ -56,6 +56,7 @@ import com.onefera.app.core.designsystem.component.GradientTag
 import com.onefera.app.core.designsystem.component.gradientTint
 import com.onefera.app.core.designsystem.theme.OneFeraTheme
 import com.onefera.app.data.model.AccountMode
+import com.onefera.app.data.model.SellerStatus
 import com.onefera.app.data.model.MembershipPlan
 import com.onefera.app.data.model.AuraGrade
 import com.onefera.app.data.model.UserProfile
@@ -344,7 +345,12 @@ private fun ProfileMenuSheet(
             MenuRow(R.drawable.ic_leaderboard, "Aura leaderboard") { close(actions.openLeaderboard) }
             MenuRow(R.drawable.ic_crown_filled, "Membership") { close(actions.openMembership) }
             if (isSeller) MenuRow(R.drawable.ic_storefront, "Seller hub") { close(actions.openSellerHub) }
-            MenuRow(R.drawable.ic_swap, if (isSeller) "Switch to personal" else "Switch to seller") { close(onToggleAccountMode) }
+            when {
+                profile.canUseSellerMode -> MenuRow(R.drawable.ic_swap, if (isSeller) "Switch to personal" else "Switch to seller") { close(onToggleAccountMode) }
+                profile.sellerStatus == SellerStatus.Pending -> MenuRow(R.drawable.ic_storefront, "Seller registration: under review") { close(actions.becomeSeller) }
+                profile.sellerStatus == SellerStatus.Rejected -> MenuRow(R.drawable.ic_storefront, "Seller registration: needs changes") { close(actions.becomeSeller) }
+                !profile.isMinor -> MenuRow(R.drawable.ic_storefront, "Become a Seller") { close(actions.becomeSeller) }
+            }
             MenuRow(R.drawable.ic_logout, "Log out", tint = MaterialTheme.colorScheme.error) { close(onLogout) }
         }
     }

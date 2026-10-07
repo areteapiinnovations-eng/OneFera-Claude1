@@ -148,6 +148,11 @@ fun FeedTab(
                             onShare = { sharePost(context, item.post) },
                             onDelete = { confirmDelete = item },
                             onEdit = { editing = item },
+                            onFollow = if (item.post.authorId != state.myUid && item.post.authorId !in state.following) {
+                                { viewModel.follow(item.post.author) }
+                            } else {
+                                null
+                            },
                             onToggleComments = { viewModel.toggleComments(item) },
                             onPlayVideo = {
                                 if (activeVideo == item.post.id) {

@@ -549,3 +549,32 @@ describe('chat: edit and delete for me', () => {
     await assertFails(updateDoc(doc(db('mallory'), `conversations/${cid}/messages/m1`), { deletedFor: arrayUnion('mallory') }));
   });
 });
+
+describe('seller onboarding', () => {
+  beforeEach(async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'users/pat'), profile('pat'));
+      await setDoc(doc(f, 'users/ok'), profile('ok', { sellerStatus: 'Approved' }));
+      await setDoc(doc(f, 'users/legacy'), profile('legacy', { accountMode: 'Seller' }));
+    });
+  });
+
+  it('does not let anyone make themselves a seller', async () => {
+    await assertFails(updateDoc(doc(db('pat'), 'users/pat'), { accountMode: 'Seller' }));
+    await assertFails(updateDoc(doc(db('pat'), 'users/pat'), { sellerStatus: 'Approved' }));
+    await assertFails(setDoc(doc(db('new'), 'users/new'), profile('new', { accountMode: 'Seller' })));
+  });
+
+  it('lets approved sellers switch modes, and keeps existing sellers working', async () => {
+    await assertSucceeds(updateDoc(doc(db('ok'), 'users/ok'), { accountMode: 'Seller' }));
+    await assertSucceeds(updateDoc(doc(db('ok'), 'users/ok'), { accountMode: 'Personal' }));
+    await assertSucceeds(updateDoc(doc(db('legacy'), 'users/legacy'), { bio: 'still selling' }));
+  });
+
+  it('keeps applications private and server-written', async () => {
+    await seed((f) => setDoc(doc(f, 'sellerApplications/pat'), { status: 'Pending', pan: 'ABCDE1234F' }));
+    await assertSucceeds(getDoc(doc(db('pat'), 'sellerApplications/pat')));
+    await assertFails(getDoc(doc(db('mallory'), 'sellerApplications/pat')));
+    await assertFails(setDoc(doc(db('pat'), 'sellerApplications/pat'), { status: 'Approved' }));
+  });
+});

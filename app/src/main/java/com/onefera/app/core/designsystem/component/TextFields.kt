@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +48,11 @@ fun OneFeraTextField(
     onImeAction: () -> Unit = {},
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailing: (@Composable () -> Unit)? = null,
+    /**
+     * Free text people write (captions, comments, messages, bios): turns on the keyboard's own
+     * spelling correction and sentence capitalisation. Off for handles, emails, codes and secrets.
+     */
+    prose: Boolean = !singleLine && keyboardType == KeyboardType.Text,
 ) {
     val extras = OneFeraTheme.extras
     val leading: (@Composable () -> Unit)? = leadingIcon?.let { icon ->
@@ -73,7 +79,12 @@ fun OneFeraTextField(
         readOnly = readOnly,
         shape = RoundedCornerShape(18.dp),
         textStyle = MaterialTheme.typography.bodyLarge,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = keyboardType,
+            imeAction = imeAction,
+            capitalization = if (prose) KeyboardCapitalization.Sentences else KeyboardCapitalization.None,
+            autoCorrectEnabled = prose,
+        ),
         keyboardActions = KeyboardActions(onAny = { onImeAction() }),
         visualTransformation = visualTransformation,
         colors = OutlinedTextFieldDefaults.colors(
