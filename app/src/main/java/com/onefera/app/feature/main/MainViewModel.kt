@@ -1,5 +1,6 @@
 package com.onefera.app.feature.main
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.onefera.app.data.auth.AuthRepository
@@ -11,13 +12,10 @@ import com.onefera.app.data.chat.ChatRepository
 import com.onefera.app.data.push.PushRegistrar
 import com.onefera.app.data.settings.SettingsRepository
 import com.onefera.app.data.social.NotificationRepository
-import com.onefera.app.data.social.StoryRepository
 import com.onefera.app.data.user.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +23,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -43,7 +42,6 @@ data class MainUiState(
 class MainViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val users: UserRepository,
-    private val stories: StoryRepository,
     private val pushRegistrar: PushRegistrar,
     chat: ChatRepository,
     private val settings: SettingsRepository,
@@ -68,21 +66,6 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch { settings.setNotificationPromptShown() }
     }
 
-    private val _storyUpload = MutableStateFlow<Float?>(null)
-    /** Upload progress (0..1) while a story is being posted, otherwise null. */
-    val storyUpload: StateFlow<Float?> = _storyUpload.asStateFlow()
-
-    fun addStory(image: android.net.Uri) {
-        if (_storyUpload.value != null) return
-        _storyUpload.value = 0f
-        viewModelScope.launch {
-            stories.addStory(image) { _storyUpload.value = it }
-                .onSuccess { _messages.emit("Story posted ✨ it disappears in 24 h") }
-                .onFailure { _messages.emit(it.message ?: "Couldn't post your story") }
-            _storyUpload.value = null
-        }
-    }
-
     val isDemoMode = backendConfig.isDemoMode
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -99,16 +82,34 @@ class MainViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
 
+    private var checkInJob: Job? = null
+
     init {
         // Daily check-in happens automatically the first time the app is opened each day.
-        viewModelScope.launch {
-            state.first { it.profile != null }
-            rewards.checkIn().onSuccess { r ->
-                if (!r.alreadyCheckedIn) {
-                    delay(1_500) // let the screen settle so the snackbar is seen
-                    _messages.emit("🔥 Day ${r.streak} streak · +${r.auraGained} Aura. Your Mystery Box is ready 🎁")
+        onAppVisible()
+    }
+
+    /**
+     * Called when the app comes to the foreground. Checks in once per day: the profile already
+     * says whether today is done, so this costs nothing on later resumes the same day, and a
+     * phone that stays open past midnight still counts the new day.
+     */
+    fun onAppVisible() {
+        if (checkInJob?.isActive == true) return
+        checkInJob = viewModelScope.launch {
+            val profile = state.first { it.profile != null }.profile ?: return@launch
+            if (profile.checkedInToday()) return@launch
+            rewards.checkIn()
+                .onSuccess { r ->
+                    if (!r.alreadyCheckedIn) {
+                        delay(1_500) // let the screen settle so the snackbar is seen
+                        _messages.emit("🔥 Day ${r.streak} streak · +${r.auraGained} Aura. Your Mystery Box is ready 🎁")
+                    }
                 }
-            }
+                .onFailure { e ->
+                    Log.w(TAG, "Daily check-in failed", e)
+                    _messages.emit("Couldn't check in today: ${e.message ?: "try again from Rewards"}")
+                }
         }
     }
 
@@ -138,5 +139,9 @@ class MainViewModel @Inject constructor(
 
     fun showMessage(text: String) {
         _messages.tryEmit(text)
+    }
+
+    private companion object {
+        const val TAG = "OneFeraMain"
     }
 }

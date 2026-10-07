@@ -1,5 +1,6 @@
 package com.onefera.app.feature.chat
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -48,6 +49,12 @@ data class ChatUiState(
     val sending: Boolean = false,
     val uploadProgress: Float? = null,
     val now: Long = System.currentTimeMillis(),
+    /** The message whose text is being edited in the composer. */
+    val editing: Message? = null,
+    /** Elapsed time of the voice note being recorded, or null when not recording. */
+    val recordingMs: Long? = null,
+    /** Chats a message can be forwarded to. */
+    val forwardTargets: List<Conversation> = emptyList(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -77,9 +84,21 @@ class ChatViewModel @Inject constructor(
         otherLastActive,
         form,
         clock,
-    ) { (me, c, msgs), lastActive, f, now ->
-        f.copy(loading = false, myUid = me, conversation = c, messages = msgs, otherLastActive = lastActive, now = now)
+        chat.conversations(),
+    ) { (me, c, msgs), lastActive, f, now, all ->
+        f.copy(
+            loading = false,
+            myUid = me,
+            conversation = c,
+            messages = msgs,
+            otherLastActive = lastActive,
+            now = now,
+            forwardTargets = all.filter { it.id != conversationId },
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
+
+    private var recorder: VoiceRecorder? = null
+    private var recordingJob: Job? = null
 
     private var typingJob: Job? = null
 
@@ -124,8 +143,20 @@ class ChatViewModel @Inject constructor(
     fun attach(uri: Uri, type: AttachmentType, label: String) = form.update { it.copy(attachment = PendingAttachment(uri, type, label)) }
     fun removeAttachment() = form.update { it.copy(attachment = null) }
 
+    fun startEdit(message: Message) = form.update { it.copy(editing = message, draft = message.text, replyTo = null, attachment = null) }
+    fun cancelEdit() = form.update { it.copy(editing = null, draft = "") }
+
     fun send(text: String = form.value.draft) {
         val f = form.value
+        f.editing?.let { editing ->
+            if (text.isBlank() || text.trim() == editing.text) { cancelEdit(); return }
+            viewModelScope.launch {
+                chat.edit(conversationId, editing.id, text)
+                    .onSuccess { form.update { it.copy(editing = null, draft = "") } }
+                    .onFailure { _messages.emit(it.message ?: "Couldn't edit that message") }
+            }
+            return
+        }
         if (f.sending || (text.isBlank() && f.attachment == null)) return
         form.update { it.copy(sending = true, uploadProgress = if (it.attachment != null) 0f else null) }
         viewModelScope.launch {
@@ -153,8 +184,70 @@ class ChatViewModel @Inject constructor(
         chat.unsend(conversationId, message.id).onFailure { _messages.emit(it.message ?: "Couldn't unsend") }
     }
 
+    fun deleteForMe(message: Message) = viewModelScope.launch {
+        chat.deleteForMe(conversationId, message.id)
+            .onSuccess { _messages.emit("Deleted for you") }
+            .onFailure { _messages.emit(it.message ?: "Couldn't delete") }
+    }
+
+    fun forward(message: Message, to: Conversation) = viewModelScope.launch {
+        chat.forward(message, to.id)
+            .onSuccess { _messages.emit("Forwarded to ${to.other(state.value.myUid).displayName}") }
+            .onFailure { _messages.emit(it.message ?: "Couldn't forward") }
+    }
+
+    /** Starts a voice note. The screen has already obtained RECORD_AUDIO. */
+    fun startRecording(context: Context) {
+        if (recorder?.isRecording == true || form.value.sending) return
+        val r = VoiceRecorder(context.applicationContext)
+        if (!r.start()) {
+            viewModelScope.launch { _messages.emit("Couldn't use the microphone. Is another app recording?") }
+            return
+        }
+        recorder = r
+        form.update { it.copy(recordingMs = 0L) }
+        recordingJob = viewModelScope.launch {
+            while (isActive && r.isRecording) {
+                form.update { it.copy(recordingMs = r.elapsedMs()) }
+                if (r.elapsedMs() >= VoiceRecorder.MAX_DURATION_MS) { stopAndSendRecording(); break }
+                delay(200)
+            }
+        }
+    }
+
+    fun cancelRecording() {
+        recordingJob?.cancel()
+        recorder?.cancel()
+        recorder = null
+        form.update { it.copy(recordingMs = null) }
+    }
+
+    fun stopAndSendRecording() {
+        recordingJob?.cancel()
+        val result = recorder?.stop()
+        recorder = null
+        form.update { it.copy(recordingMs = null) }
+        if (result == null) {
+            viewModelScope.launch { _messages.emit("Hold on a little longer to record a voice note") }
+            return
+        }
+        val (file, duration) = result
+        form.update { it.copy(sending = true, uploadProgress = 0f) }
+        viewModelScope.launch {
+            val outgoing = OutgoingMessage("", form.value.replyTo, Uri.fromFile(file), AttachmentType.Audio, durationMs = duration)
+            chat.send(conversationId, outgoing) { p -> form.update { it.copy(uploadProgress = p) } }
+                .onSuccess { form.update { it.copy(sending = false, uploadProgress = null, replyTo = null) } }
+                .onFailure { e ->
+                    form.update { it.copy(sending = false, uploadProgress = null) }
+                    _messages.emit(e.message ?: "Couldn't send the voice note")
+                }
+            file.delete()
+        }
+    }
+
 
     override fun onCleared() {
+        recorder?.cancel()
         if (active.id == conversationId) active.id = null
     }
 }

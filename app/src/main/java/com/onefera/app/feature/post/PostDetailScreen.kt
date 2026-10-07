@@ -43,6 +43,7 @@ import com.onefera.app.core.navigation.LocalAppActions
 import com.onefera.app.data.auth.AuthRepository
 import com.onefera.app.data.auth.SessionState
 import com.onefera.app.data.model.Comment
+import com.onefera.app.data.model.PostEdit
 import com.onefera.app.data.social.PostRepository
 import com.onefera.app.navigation.PostDetailRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -66,6 +67,8 @@ data class PostDetailUiState(
     val sending: Boolean = false,
     val error: String? = null,
     val deleted: Boolean = false,
+    val saving: Boolean = false,
+    val message: String? = null,
 )
 
 @HiltViewModel
@@ -98,6 +101,28 @@ class PostDetailViewModel @Inject constructor(
         viewModelScope.launch { actions.delete(item).onSuccess { form.update { it.copy(deleted = true) } } }
     }
 
+    fun edit(edit: PostEdit, onDone: () -> Unit) = current()?.let { item ->
+        if (form.value.saving) return@let
+        form.update { it.copy(saving = true) }
+        viewModelScope.launch {
+            actions.edit(item, edit)
+                .onSuccess { form.update { it.copy(saving = false) }; onDone() }
+                .onFailure { e -> form.update { it.copy(saving = false, message = e.message ?: "Couldn't save your changes") } }
+        }
+    }
+
+    fun toggleComments() = current()?.let { item ->
+        viewModelScope.launch { actions.toggleComments(item).onFailure { e -> form.update { it.copy(message = e.message) } } }
+    }
+
+    fun commentAction(result: suspend () -> Result<Unit>) = viewModelScope.launch {
+        result().onFailure { e -> form.update { it.copy(message = e.message ?: "Something went wrong") } }
+    }
+
+    fun editComment(comment: Comment, text: String) = commentAction { posts.editComment(comment, text) }
+    fun deleteComment(comment: Comment) = commentAction { posts.deleteComment(comment) }
+    fun messageShown() = form.update { it.copy(message = null) }
+
     fun onDraftChange(v: String) = form.update { it.copy(draft = v.take(500), error = null) }
 
     fun send(text: String = form.value.draft) {
@@ -119,7 +144,11 @@ fun PostDetailScreen(onBack: () -> Unit, viewModel: PostDetailViewModel = hiltVi
     val player = rememberVideoPlayer(loop = true)
     var playing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
     LaunchedEffect(state.deleted) { if (state.deleted) onBack() }
+    LaunchedEffect(state.message) {
+        state.message?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show(); viewModel.messageShown() }
+    }
     LaunchedEffect(playing) {
         val url = state.item?.post?.cover?.url
         if (playing && url != null) {
@@ -153,6 +182,8 @@ fun PostDetailScreen(onBack: () -> Unit, viewModel: PostDetailViewModel = hiltVi
                                     onShare = { sharePost(context, item.post) },
                                     onDelete = { confirmDelete = true },
                                     onPlayVideo = { playing = !playing },
+                                    onEdit = { editing = true },
+                                    onToggleComments = { viewModel.toggleComments() },
                                 ),
                             )
                         }
@@ -165,12 +196,26 @@ fun PostDetailScreen(onBack: () -> Unit, viewModel: PostDetailViewModel = hiltVi
                         }
                         items(state.comments, key = { it.id }) { comment ->
                             val actions = LocalAppActions.current
-                            CommentRow(comment) { actions.openUser(comment.author.uid) }
+                            CommentRow(
+                                comment = comment,
+                                myUid = state.myUid,
+                                postAuthorId = item.post.authorId,
+                                onAuthor = { actions.openUser(comment.author.uid) },
+                                onEdit = { text -> viewModel.editComment(comment, text) },
+                                onDelete = { viewModel.deleteComment(comment) },
+                            )
                         }
                         item { Spacer(Modifier.height(8.dp)) }
                     }
                     Column(Modifier.navigationBarsPadding()) {
-                        CommentComposer(
+                        if (item.post.commentsOff) {
+                            Text(
+                                "Comments are off for this post",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = com.onefera.app.core.designsystem.theme.OneFeraTheme.extras.muted,
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            )
+                        } else CommentComposer(
                             draft = state.draft,
                             sending = state.sending,
                             error = state.error,
@@ -184,6 +229,15 @@ fun PostDetailScreen(onBack: () -> Unit, viewModel: PostDetailViewModel = hiltVi
         }
     }
 
+    val editingItem = state.item
+    if (editing && editingItem != null) {
+        EditPostDialog(
+            post = editingItem.post,
+            saving = state.saving,
+            onSave = { edit -> viewModel.edit(edit) { editing = false } },
+            onDismiss = { editing = false },
+        )
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },

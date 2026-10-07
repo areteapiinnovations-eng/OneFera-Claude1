@@ -3,7 +3,6 @@ package com.onefera.app.feature.main
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -32,7 +31,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -41,6 +39,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +57,9 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onefera.app.R
 import com.onefera.app.core.designsystem.component.AuroraBackground
@@ -88,7 +90,6 @@ fun MainScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val unread by viewModel.unreadCount.collectAsStateWithLifecycle()
-    val storyUpload by viewModel.storyUpload.collectAsStateWithLifecycle()
     val unreadChats by viewModel.unreadChats.collectAsStateWithLifecycle()
     val askNotifications by viewModel.shouldAskNotificationPermission.collectAsStateWithLifecycle()
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -98,16 +99,19 @@ fun MainScreen(
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) viewModel.onAppVisible() }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val actions = LocalAppActions.current
     var tab by rememberSaveable { mutableStateOf(MainTab.Home) }
     var showCreate by rememberSaveable { mutableStateOf(false) }
     var searchShop by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val tabStates = rememberSaveableStateHolder()
-    val pickStory = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) viewModel.addStory(uri)
-    }
-    val addStory = { pickStory.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    val addStory = actions.createStory
 
     LaunchedEffect(viewModel) {
         viewModel.messages.collect {
@@ -131,9 +135,6 @@ fun MainScreen(
                             onAura = actions.openLeaderboard,
                             onNotifications = actions.openNotifications,
                         )
-                        storyUpload?.let { progress ->
-                            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(3.dp))
-                        }
                     }
                 }
             },
@@ -237,7 +238,7 @@ private fun MainTopBar(
         Spacer(Modifier.width(10.dp))
         OneFeraWordmark(height = 22.dp)
         Spacer(Modifier.weight(1f))
-        InfoPill(text = "${profile?.streakDays ?: 0}", icon = R.drawable.ic_fire_filled, iconTint = Color(0xFFFF8A3D), onClick = onStreak)
+        InfoPill(text = "${profile?.currentStreak ?: 0}", icon = R.drawable.ic_fire_filled, iconTint = Color(0xFFFF8A3D), onClick = onStreak)
         Spacer(Modifier.width(6.dp))
         InfoPill(text = "${profile?.auraPoints ?: 0}", icon = R.drawable.ic_bolt_filled, onClick = onAura)
         Spacer(Modifier.width(6.dp))

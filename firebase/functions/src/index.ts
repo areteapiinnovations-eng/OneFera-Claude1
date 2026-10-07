@@ -23,6 +23,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { GoogleAuth } from "google-auth-library";
 import { onMessagePublished } from "firebase-functions/v2/pubsub";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import * as functionsV1 from "firebase-functions/v1";
 import * as logger from "firebase-functions/logger";
 
 initializeApp();
@@ -38,7 +39,7 @@ const AURA = {
   newFollower: 1,
 };
 
-type NotificationType = "Like" | "Comment" | "Follow" | "FollowRequest" | "FollowAccepted";
+type NotificationType = "Like" | "Comment" | "Follow" | "FollowRequest" | "FollowAccepted" | "Mention";
 
 interface UserSummary {
   uid: string;
@@ -179,6 +180,21 @@ export const onPostCreated = onDocumentCreated("posts/{postId}", async (event) =
   }
 });
 
+/** Editing a caption can add or drop hashtags; keep `tags/{tag}.postCount` in step. */
+export const onPostUpdated = onDocumentUpdated("posts/{postId}", async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  if (!before || !after) return;
+  const was = new Set<string>(before.visibility === "public" ? (before.tags as string[] | undefined) ?? [] : []);
+  const now = new Set<string>(after.visibility === "public" ? (after.tags as string[] | undefined) ?? [] : []);
+  const added = [...now].filter((t) => !was.has(t));
+  const removed = [...was].filter((t) => !now.has(t));
+  await Promise.all([
+    ...added.map((tag) => db.collection("tags").doc(tag).set({ postCount: FieldValue.increment(1) }, { merge: true })),
+    ...removed.map((tag) => db.collection("tags").doc(tag).set({ postCount: FieldValue.increment(-1) }, { merge: true })),
+  ]);
+});
+
 export const onPostDeleted = onDocumentDeleted("posts/{postId}", async (event) => {
   const { postId } = event.params;
   const authorId = event.data?.get("authorId") as string | undefined;
@@ -232,7 +248,9 @@ export const onMessageCreated = onDocumentCreated("conversations/{cid}/messages/
   const recipients = memberIds.filter((m) => m !== senderId);
   const attachment = message.attachment as { type?: string; name?: string } | undefined;
   const preview = (message.text as string | undefined)?.trim()
-    || (attachment?.type === "Image" ? "📷 Photo" : attachment ? `📎 ${attachment.name || "File"}` : "");
+    || (attachment?.type === "Image" ? "📷 Photo"
+      : attachment?.type === "Audio" ? "🎤 Voice message"
+        : attachment ? `📎 ${attachment.name || "File"}` : "");
 
   const update: Record<string, unknown> = {
     lastMessage: preview.slice(0, 120),
@@ -261,10 +279,33 @@ export const cleanUpExpiredStories = onSchedule("every 60 minutes", async () => 
     expired.docs.map(async (doc) => {
       const authorId = doc.get("authorId");
       await bucket.file(`stories/${authorId}/${doc.id}.jpg`).delete().catch(() => undefined);
-      await doc.ref.delete();
+      await db.recursiveDelete(doc.ref);
     }),
   );
   logger.info(`Removed ${expired.size} expired stories`);
+});
+
+/** People @-mentioned in a story get a notification (if they can see it). */
+export const onStoryCreated = onDocumentCreated("stories/{storyId}", async (event) => {
+  const story = event.data?.data();
+  if (!story) return;
+  const authorId = story.authorId as string;
+  const mentions = ((story.mentions as Array<{ uid?: string }> | undefined) ?? []).map((m) => m.uid).filter((u): u is string => !!u);
+  for (const uid of [...new Set(mentions)].slice(0, 10)) {
+    if (uid === authorId) continue;
+    if (story.audience === "followers") {
+      const follows = await db.collection("users").doc(authorId).collection("followers").doc(uid).get();
+      if (!follows.exists) continue;
+    }
+    await notify(uid, "Mention", authorId, "mentioned you in their story");
+  }
+});
+
+/** A story deleted early takes its image and its viewer list with it. */
+export const onStoryDeleted = onDocumentDeleted("stories/{storyId}", async (event) => {
+  const authorId = event.data?.get("authorId") as string | undefined;
+  if (authorId) await getStorage().bucket().file(`stories/${authorId}/${event.params.storyId}.jpg`).delete().catch(() => undefined);
+  await db.recursiveDelete(db.collection("stories").doc(event.params.storyId).collection("views"));
 });
 
 // ---------------------------------------------------------------- shop
@@ -685,6 +726,123 @@ export const cancelMembership = onCall(async (request) => {
   return { plan: "None" };
 });
 
+// ---------------------------------------------------------------- users: search keywords, deletion
+
+/**
+ * Prefixes (1..20 chars) of the handle, the full name and every word of the name, lower-cased,
+ * so `array-contains` finds "smith" in "John Smith" and "vin" in "@vineel.chalam". Mirrors
+ * `UserSearch.keywordsFor` in the app, which writes the same list at sign-up so new members are
+ * searchable at once; this trigger backfills profiles written by older builds.
+ */
+export function searchKeywordsFor(displayName: string, username: string): string[] {
+  const out = new Set<string>();
+  const add = (word: string) => {
+    const w = word.trim().toLowerCase();
+    for (let i = 1; i <= Math.min(w.length, 20); i++) out.add(w.slice(0, i));
+  };
+  add(username);
+  add(displayName);
+  for (const word of displayName.split(/\s+/)) if (word) add(word);
+  return [...out].slice(0, 300);
+}
+
+function keywordsOutOfDate(data: FirebaseFirestore.DocumentData | undefined): boolean {
+  if (!data) return false;
+  const expected = searchKeywordsFor(data.displayName ?? "", data.username ?? "");
+  const current = (data.searchKeywords as string[] | undefined) ?? [];
+  return expected.length !== current.length || expected.some((k, i) => k !== current[i]);
+}
+
+export const onUserCreated = onDocumentCreated("users/{uid}", async (event) => {
+  const data = event.data?.data();
+  if (!data || !keywordsOutOfDate(data)) return;
+  await event.data!.ref.update({ searchKeywords: searchKeywordsFor(data.displayName ?? "", data.username ?? "") });
+});
+
+/** Deletes every document of a query in batches of 400 (a batch write holds 500 operations). */
+async function deleteAll(query: FirebaseFirestore.Query): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const snap = await query.limit(400).get();
+    if (snap.empty) return total;
+    const batch = db.batch();
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    total += snap.size;
+    if (snap.size < 400) return total;
+  }
+}
+
+/**
+ * Removes every trace of a user from other people's data: follow lists on both sides (with
+ * counters), follow requests, block lists, likes and comments on others' posts (counters follow
+ * via the existing triggers), notifications they caused, conversations and chat files.
+ */
+async function purgeUserReferences(uid: string): Promise<void> {
+  const bucket = getStorage().bucket();
+  // Following lists of people who followed this user have no delete trigger, so fix their counts here.
+  const followedBy = await db.collectionGroup("following").where("uid", "==", uid).get();
+  await Promise.all(followedBy.docs.map(async (d) => {
+    const owner = d.ref.parent.parent?.id;
+    await d.ref.delete();
+    if (owner) await bump(owner, "followingCount", -1);
+  }));
+  await deleteAll(db.collectionGroup("followers").where("uid", "==", uid)); // onFollowerDeleted fixes followersCount
+  await deleteAll(db.collectionGroup("followRequests").where("uid", "==", uid));
+  await deleteAll(db.collectionGroup("blocked").where("user.uid", "==", uid));
+  await deleteAll(db.collectionGroup("likes").where("uid", "==", uid)); // onLikeDeleted fixes likeCount
+  await deleteAll(db.collectionGroup("comments").where("authorId", "==", uid)); // onCommentDeleted fixes commentCount
+  await deleteAll(db.collectionGroup("notifications").where("actor.uid", "==", uid));
+  const conversations = await db.collection("conversations").where("memberIds", "array-contains", uid).get();
+  for (const convo of conversations.docs) {
+    await db.recursiveDelete(convo.ref);
+    await bucket.deleteFiles({ prefix: `chats/${convo.id}/` }).catch(() => undefined);
+  }
+  await Promise.all([
+    db.collection("near").doc(uid).delete().catch(() => undefined),
+    db.collection("stores").doc(uid).delete().catch(() => undefined),
+    bucket.deleteFiles({ prefix: `stories/${uid}/` }).catch(() => undefined),
+    bucket.deleteFiles({ prefix: `avatars/${uid}/` }).catch(() => undefined),
+  ]);
+}
+
+/** Everything the user owns: posts (media via onPostDeleted), stories, listings, username claim, then the profile. */
+async function deleteOwnedContent(uid: string): Promise<void> {
+  const userRef = db.collection("users").doc(uid);
+  const username = (await userRef.get()).get("username") as string | undefined;
+  const owned = await Promise.all([
+    db.collection("posts").where("authorId", "==", uid).get(),
+    db.collection("stories").where("authorId", "==", uid).get(),
+    db.collection("products").where("sellerId", "==", uid).get(),
+  ]);
+  for (const snap of owned) {
+    for (const doc of snap.docs) await db.recursiveDelete(doc.ref);
+  }
+  const orders = await db.collection("orders").where("buyerId", "==", uid).get();
+  await Promise.all(orders.docs.map((d) => d.ref.update({ address: { name: "Deleted user", phone: "", line1: "", line2: "", city: "", state: "", pincode: "" } })));
+  await Promise.all([
+    username ? db.collection("usernames").doc(username).delete().catch(() => undefined) : Promise.resolve(),
+    getStorage().bucket().deleteFiles({ prefix: `products/${uid}/` }).catch(() => undefined),
+  ]);
+  await db.recursiveDelete(userRef);
+}
+
+/** Whatever deleted the profile (the app, a moderator, the console), other people's data follows. */
+export const onUserDeleted = onDocumentDeleted("users/{uid}", async (event) => {
+  const { uid } = event.params;
+  await purgeUserReferences(uid);
+  const username = event.data?.get("username") as string | undefined;
+  if (username) await db.collection("usernames").doc(username).delete().catch(() => undefined);
+  logger.info(`Purged references to deleted user ${uid}`);
+});
+
+/** An account removed in the Firebase Authentication console takes its content with it. */
+export const onAuthUserDeleted = functionsV1.region("asia-south1").auth.user().onDelete(async (user) => {
+  await deleteOwnedContent(user.uid);
+  await purgeUserReferences(user.uid);
+  logger.info(`Deleted content of auth-deleted user ${user.uid}`);
+});
+
 // ---------------------------------------------------------------- Near
 
 /** People who haven't refreshed Near in a day disappear from it. */
@@ -702,6 +860,9 @@ export const onUserUpdated = onDocumentUpdated("users/{uid}", async (event) => {
   const { uid } = event.params;
   if (!before.isPrivate && after.isPrivate) await db.collection("near").doc(uid).delete().catch(() => undefined);
   if (before.accountMode === "Seller" && after.accountMode !== "Seller") await db.collection("stores").doc(uid).delete().catch(() => undefined);
+  if (keywordsOutOfDate(after)) {
+    await event.data!.after.ref.update({ searchKeywords: searchKeywordsFor(after.displayName ?? "", after.username ?? "") });
+  }
 });
 
 // ---------------------------------------------------------------- Google Play Billing (memberships)
@@ -802,28 +963,8 @@ export const onPlayNotification = onMessagePublished("play-billing", async (even
  */
 export const deleteAccount = onCall(async (request) => {
   const uid = requireUid(request.auth);
-  const userRef = db.collection("users").doc(uid);
-  const username = (await userRef.get()).get("username") as string | undefined;
-
-  const owned = await Promise.all([
-    db.collection("posts").where("authorId", "==", uid).get(),
-    db.collection("stories").where("authorId", "==", uid).get(),
-    db.collection("products").where("sellerId", "==", uid).get(),
-  ]);
-  for (const snap of owned) {
-    for (const doc of snap.docs) await db.recursiveDelete(doc.ref);
-  }
-  const orders = await db.collection("orders").where("buyerId", "==", uid).get();
-  await Promise.all(orders.docs.map((d) => d.ref.update({ address: { name: "Deleted user", phone: "", line1: "", line2: "", city: "", state: "", pincode: "" } })));
-
-  await Promise.all([
-    db.collection("near").doc(uid).delete().catch(() => undefined),
-    db.collection("stores").doc(uid).delete().catch(() => undefined),
-    username ? db.collection("usernames").doc(username).delete().catch(() => undefined) : Promise.resolve(),
-    getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}/` }).catch(() => undefined),
-    getStorage().bucket().deleteFiles({ prefix: `products/${uid}/` }).catch(() => undefined),
-  ]);
-  await db.recursiveDelete(userRef);
+  await deleteOwnedContent(uid);
+  await purgeUserReferences(uid);
   await getAuth().deleteUser(uid);
   logger.info(`Deleted account ${uid}`);
   return { deleted: true };

@@ -1,6 +1,7 @@
 package com.onefera.app.data.chat
 
 import android.net.Uri
+import com.onefera.app.data.model.Attachment
 import com.onefera.app.data.model.AttachmentType
 import com.onefera.app.data.model.Conversation
 import com.onefera.app.data.model.Message
@@ -13,6 +14,11 @@ data class OutgoingMessage(
     val replyTo: Message? = null,
     val attachment: Uri? = null,
     val attachmentType: AttachmentType = AttachmentType.Image,
+    /** Length of a voice note being sent. */
+    val durationMs: Long = 0L,
+    /** An attachment that is already uploaded (forwarding). */
+    val existingAttachment: Attachment? = null,
+    val forwarded: Boolean = false,
 )
 
 interface ChatRepository {
@@ -27,6 +33,12 @@ interface ChatRepository {
 
     suspend fun send(conversationId: String, message: OutgoingMessage, onProgress: (Float) -> Unit = {}): Result<Unit>
     suspend fun unsend(conversationId: String, messageId: String): Result<Unit>
+    /** Changes the text of one of my recent messages (see [Message.canEdit]). */
+    suspend fun edit(conversationId: String, messageId: String, text: String): Result<Unit>
+    /** Hides a message for me only; the other member still sees it. */
+    suspend fun deleteForMe(conversationId: String, messageId: String): Result<Unit>
+    /** Sends a copy of [message] to another conversation. */
+    suspend fun forward(message: Message, toConversationId: String): Result<Unit>
     suspend fun markRead(conversationId: String)
     suspend fun setTyping(conversationId: String, typing: Boolean)
 

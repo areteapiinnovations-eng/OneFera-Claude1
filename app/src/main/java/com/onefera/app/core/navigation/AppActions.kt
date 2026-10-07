@@ -12,6 +12,8 @@ data class AppActions(
     val openPost: (postId: String) -> Unit = {},
     val openTag: (tag: String) -> Unit = {},
     val openStories: (authorUid: String) -> Unit = {},
+    /** Picks a photo and opens the story editor. */
+    val createStory: () -> Unit = {},
     val openFollowList: (uid: String, followers: Boolean) -> Unit = { _, _ -> },
     val openNotifications: () -> Unit = {},
     val createPost: (reel: Boolean) -> Unit = {},

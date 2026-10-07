@@ -106,8 +106,9 @@ class DemoChatRepository @Inject constructor(
     override fun conversation(conversationId: String): Flow<Conversation?> =
         data.map { s -> s.conversations.firstOrNull { it.id == conversationId } }.distinctUntilChanged()
 
-    override fun messages(conversationId: String): Flow<List<Message>> =
-        data.map { s -> s.messages[conversationId].orEmpty().sortedByDescending { it.createdAt } }.distinctUntilChanged()
+    override fun messages(conversationId: String): Flow<List<Message>> = auth.uidFlow().flatMapLatest { uid ->
+        data.map { s -> s.messages[conversationId].orEmpty().filter { uid !in it.deletedFor }.sortedByDescending { it.createdAt } }.distinctUntilChanged()
+    }
 
     override fun totalUnread(): Flow<Int> = auth.uidFlow().flatMapLatest { uid ->
         if (uid == null) flowOf(0) else conversations().map { list -> list.count { it.unreadFor(uid) > 0 } }
@@ -128,7 +129,8 @@ class DemoChatRepository @Inject constructor(
     override suspend fun send(conversationId: String, message: OutgoingMessage, onProgress: (Float) -> Unit): Result<Unit> = runCatching {
         val me = uid()
         val id = UUID.randomUUID().toString()
-        val attachment = message.attachment?.let { storeAttachment(id, it, message.attachmentType) }
+        val attachment = message.existingAttachment
+            ?: message.attachment?.let { storeAttachment(id, it, message.attachmentType) }?.copy(durationMs = message.durationMs)
         onProgress(1f)
         val msg = Message(
             id = id,
@@ -138,6 +140,7 @@ class DemoChatRepository @Inject constructor(
             attachment = attachment,
             replyTo = message.replyTo?.let { ReplyPreview(it.id, it.senderId, "", it.preview.take(120)) },
             createdAt = System.currentTimeMillis(),
+            forwarded = message.forwarded,
         )
         append(msg)
         simulateReply(conversationId, me)
@@ -197,6 +200,28 @@ class DemoChatRepository @Inject constructor(
         }
     }
 
+    private suspend fun updateMessage(conversationId: String, messageId: String, transform: (Message) -> Message) = update { s ->
+        val list = s.messages[conversationId].orEmpty().map { if (it.id == messageId) transform(it) else it }
+        s.copy(messages = s.messages + (conversationId to list)) to Unit
+    }
+
+    override suspend fun edit(conversationId: String, messageId: String, text: String): Result<Unit> = runCatching {
+        val me = uid()
+        val body = text.trim().take(2000)
+        if (body.isEmpty()) throw UserFacingException("A message can't be empty. Use Unsend to remove it.")
+        val msg = data.first().messages[conversationId].orEmpty().firstOrNull { it.id == messageId } ?: throw UserFacingException("Message not found.")
+        if (!msg.canEdit(me)) throw UserFacingException("Messages can be edited for ${Message.EDIT_WINDOW_MS / 60_000} minutes after sending.")
+        updateMessage(conversationId, messageId) { it.copy(text = body, edited = true) }
+    }
+
+    override suspend fun deleteForMe(conversationId: String, messageId: String): Result<Unit> = runCatching {
+        val me = uid()
+        updateMessage(conversationId, messageId) { it.copy(deletedFor = (it.deletedFor + me).distinct()) }
+    }
+
+    override suspend fun forward(message: Message, toConversationId: String): Result<Unit> =
+        send(toConversationId, OutgoingMessage(text = message.text, existingAttachment = message.attachment, forwarded = true))
+
     override suspend fun markRead(conversationId: String) {
         val me = runCatching { uid() }.getOrNull() ?: return
         update { s ->
@@ -227,6 +252,12 @@ class DemoChatRepository @Inject constructor(
                 context.contentResolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } }
                     ?: throw UserFacingException("Couldn't read that file.")
                 Attachment(Uri.fromFile(file).toString(), AttachmentType.File, name, file.length())
+            }
+            AttachmentType.Audio -> {
+                val file = File(dir, "chat-$id.m4a")
+                context.contentResolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } }
+                    ?: throw UserFacingException("Couldn't read the recording.")
+                Attachment(Uri.fromFile(file).toString(), AttachmentType.Audio, "voice.m4a", file.length())
             }
         }
     }

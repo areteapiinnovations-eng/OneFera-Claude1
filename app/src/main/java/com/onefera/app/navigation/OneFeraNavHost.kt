@@ -27,6 +27,7 @@ import com.onefera.app.feature.create.CreatePostScreen
 import com.onefera.app.feature.notifications.NotificationsScreen
 import com.onefera.app.feature.post.PostDetailScreen
 import com.onefera.app.feature.search.TagScreen
+import com.onefera.app.feature.story.StoryEditorScreen
 import com.onefera.app.feature.story.StoryViewerScreen
 import com.onefera.app.feature.user.FollowListScreen
 import com.onefera.app.feature.user.UserProfileScreen
@@ -94,6 +95,7 @@ fun OneFeraNavHost(
             openPost = { navController.navigate(PostDetailRoute(it)) },
             openTag = { navController.navigate(TagRoute(it)) },
             openStories = { navController.navigate(StoryViewerRoute(it)) },
+            createStory = { navController.navigate(StoryEditorRoute) { launchSingleTop = true } },
             openFollowList = { uid, followers -> navController.navigate(FollowListRoute(uid, followers)) },
             openNotifications = { navController.navigate(NotificationsRoute) { launchSingleTop = true } },
             createPost = { reel -> navController.navigate(CreatePostRoute(reel)) },
@@ -176,6 +178,12 @@ fun OneFeraNavHost(
             popExitTransition = { fadeOut(tween(200)) },
         ) {
             StoryViewerScreen(onClose = { navController.popBackStack() })
+        }
+        composable<StoryEditorRoute>(
+            enterTransition = { slideInVertically(tween(320)) { it / 3 } + fadeIn(tween(320)) },
+            popExitTransition = { slideOutVertically(tween(280)) { it / 3 } + fadeOut(tween(280)) },
+        ) {
+            StoryEditorScreen(onClose = { navController.popBackStack() })
         }
         composable<UserProfileRoute> { UserProfileScreen(onBack = { navController.popBackStack() }) }
         composable<FollowListRoute> { FollowListScreen(onBack = { navController.popBackStack() }) }

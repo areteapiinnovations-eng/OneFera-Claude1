@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { assertFails, assertSucceeds, initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { arrayUnion, collection, deleteDoc, doc, documentId, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 
 let env;
 
@@ -180,6 +180,7 @@ describe('notifications', () => {
 
 describe('stories', () => {
   it('rejects stories that live longer than a day', async () => {
+    await seed((f) => setDoc(doc(f, 'users/alice'), profile('alice')));
     const base = { authorId: 'alice', author: summary('alice'), mediaUrl: 'https://x/s.jpg', createdAt: serverTimestamp() };
     await assertSucceeds(setDoc(doc(db('alice'), 'stories/s1'), { ...base, expiresAt: Date.now() + 24 * 3600 * 1000 }));
     await assertFails(setDoc(doc(db('alice'), 'stories/s2'), { ...base, expiresAt: Date.now() + 72 * 3600 * 1000 }));
@@ -427,5 +428,124 @@ describe('safety', () => {
     await seed((f) => setDoc(doc(f, 'posts/p9'), post('alice', { hidden: true })));
     await assertFails(updateDoc(doc(db('alice'), 'posts/p9'), { hidden: false }));
     await assertFails(setDoc(doc(db('alice'), 'posts/p10'), post('alice', { hidden: true })));
+  });
+});
+
+describe('post edits and comment controls', () => {
+  beforeEach(async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'users/alice'), profile('alice'));
+      await setDoc(doc(f, 'users/bob'), profile('bob'));
+      await setDoc(doc(f, 'posts/p1'), post('alice'));
+    });
+  });
+  const comment = (uid, extra = {}) => ({ authorId: uid, author: summary(uid), text: 'nice', createdAt: serverTimestamp(), ...extra });
+
+  it('lets the author edit the caption and switch comments off, nobody else', async () => {
+    await assertSucceeds(updateDoc(doc(db('alice'), 'posts/p1'), { caption: 'new #tag', tags: ['tag'], location: 'Goa', edited: true }));
+    await assertSucceeds(updateDoc(doc(db('alice'), 'posts/p1'), { commentsOff: true }));
+    await assertFails(updateDoc(doc(db('bob'), 'posts/p1'), { caption: 'hijack' }));
+    await assertFails(updateDoc(doc(db('alice'), 'posts/p1'), { caption: 'x'.repeat(2201) }));
+  });
+
+  it('blocks new comments once they are switched off', async () => {
+    await seed((f) => updateDoc(doc(f, 'posts/p1'), { commentsOff: true }));
+    await assertFails(setDoc(doc(db('bob'), 'posts/p1/comments/c1'), comment('bob')));
+  });
+
+  it('lets commenters edit their own comment and the post author delete any', async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'posts/p1/comments/c1'), comment('bob'));
+    });
+    await assertSucceeds(updateDoc(doc(db('bob'), 'posts/p1/comments/c1'), { text: 'nicer', edited: true }));
+    await assertFails(updateDoc(doc(db('alice'), 'posts/p1/comments/c1'), { text: 'rewritten', edited: true }));
+    await assertFails(updateDoc(doc(db('bob'), 'posts/p1/comments/c1'), { text: '', edited: true }));
+    await assertSucceeds(deleteDoc(doc(db('alice'), 'posts/p1/comments/c1')));
+  });
+
+  it('only allows profile queries the client actually makes for posts', async () => {
+    await seed((f) => setDoc(doc(f, 'posts/p2'), post('alice', { visibility: 'followers' })));
+    // A stranger listing everything by alice is rejected; public-only succeeds.
+    await assertFails(getDocs(query(collection(db('bob'), 'posts'), where('authorId', '==', 'alice'))));
+    await assertSucceeds(getDocs(query(collection(db('bob'), 'posts'), where('authorId', '==', 'alice'), where('visibility', '==', 'public'))));
+    // Saved posts are read one by one, because an id `in` query can't be proven.
+    await assertFails(getDocs(query(collection(db('bob'), 'posts'), where(documentId(), 'in', ['p1', 'p2']))));
+    await assertSucceeds(getDoc(doc(db('bob'), 'posts/p1')));
+  });
+});
+
+describe('search keywords', () => {
+  it('accepts keywords on a profile but caps their number', async () => {
+    await assertSucceeds(setDoc(doc(db('alice'), 'users/alice'), profile('alice', { searchKeywords: ['a', 'al', 'ali'] })));
+    await assertFails(setDoc(doc(db('bob'), 'users/bob'), profile('bob', { searchKeywords: Array.from({ length: 301 }, (_, i) => `k${i}`) })));
+  });
+});
+
+describe('stories: audience, views', () => {
+  const story = (uid, extra = {}) => ({
+    authorId: uid, author: summary(uid), mediaUrl: 'https://x/s.jpg', createdAt: serverTimestamp(),
+    expiresAt: Date.now() + 3600 * 1000, audience: 'public', mentions: [], allowReplies: true, ...extra,
+  });
+  beforeEach(async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'users/alice'), profile('alice'));
+      await setDoc(doc(f, 'users/bob'), profile('bob'));
+      await setDoc(doc(f, 'users/priv'), profile('priv', { isPrivate: true }));
+    });
+  });
+
+  it('keeps followers-only stories for followers', async () => {
+    await seed((f) => setDoc(doc(f, 'stories/s1'), story('alice', { audience: 'followers' })));
+    await assertFails(getDoc(doc(db('bob'), 'stories/s1')));
+    await seed((f) => setDoc(doc(f, 'users/alice/followers/bob'), summary('bob')));
+    await assertSucceeds(getDoc(doc(db('bob'), 'stories/s1')));
+  });
+
+  it('allows the two story queries the app makes', async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, 'stories/s1'), story('alice'));
+      await setDoc(doc(f, 'stories/s2'), story('alice', { audience: 'followers' }));
+      await setDoc(doc(f, 'users/alice/followers/bob'), summary('bob'));
+    });
+    await assertSucceeds(getDocs(query(collection(db('bob'), 'stories'), where('audience', '==', 'public'), where('expiresAt', '>', 0))));
+    await assertSucceeds(getDocs(query(collection(db('bob'), 'stories'), where('authorId', 'in', ['alice', 'bob']), where('expiresAt', '>', 0))));
+  });
+
+  it('forces private accounts to post for followers only', async () => {
+    await assertFails(setDoc(doc(db('priv'), 'stories/s1'), story('priv')));
+    await assertSucceeds(setDoc(doc(db('priv'), 'stories/s2'), story('priv', { audience: 'followers' })));
+  });
+
+  it('lets viewers record a view that only the author can read', async () => {
+    await seed((f) => setDoc(doc(f, 'stories/s1'), story('alice')));
+    await assertSucceeds(setDoc(doc(db('bob'), 'stories/s1/views/bob'), { ...summary('bob'), viewedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(db('bob'), 'stories/s1/views/mallory'), summary('mallory')));
+    await assertFails(setDoc(doc(db('alice'), 'stories/s1/views/alice'), summary('alice')));
+    await assertSucceeds(getDoc(doc(db('alice'), 'stories/s1/views/bob')));
+    await assertFails(getDoc(doc(db('bob'), 'stories/s1/views/bob')));
+  });
+});
+
+describe('chat: edit and delete for me', () => {
+  const cid = 'alice_bob';
+  const convo = { memberIds: ['alice', 'bob'], members: { alice: summary('alice'), bob: summary('bob') }, lastMessage: '', lastSenderId: '', lastMessageAt: 0, unreadCounts: { alice: 0, bob: 0 } };
+  beforeEach(async () => {
+    await seed(async (f) => {
+      await setDoc(doc(f, `conversations/${cid}`), convo);
+      await setDoc(doc(f, `conversations/${cid}/messages/m1`), { senderId: 'alice', text: 'hey', unsent: false, createdAt: Timestamp.now() });
+      await setDoc(doc(f, `conversations/${cid}/messages/old`), { senderId: 'alice', text: 'old', unsent: false, createdAt: Timestamp.fromMillis(Date.now() - 60 * 60 * 1000) });
+    });
+  });
+
+  it('lets the sender edit a recent message, not an old one or someone else\'s', async () => {
+    await assertSucceeds(updateDoc(doc(db('alice'), `conversations/${cid}/messages/m1`), { text: 'hey there', edited: true }));
+    await assertFails(updateDoc(doc(db('alice'), `conversations/${cid}/messages/old`), { text: 'changed', edited: true }));
+    await assertFails(updateDoc(doc(db('bob'), `conversations/${cid}/messages/m1`), { text: 'not mine', edited: true }));
+  });
+
+  it('lets each member hide a message for themselves only', async () => {
+    await assertSucceeds(updateDoc(doc(db('bob'), `conversations/${cid}/messages/m1`), { deletedFor: arrayUnion('bob') }));
+    await assertFails(updateDoc(doc(db('bob'), `conversations/${cid}/messages/m1`), { deletedFor: ['bob', 'alice'] }));
+    await assertFails(updateDoc(doc(db('mallory'), `conversations/${cid}/messages/m1`), { deletedFor: arrayUnion('mallory') }));
   });
 });

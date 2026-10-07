@@ -122,6 +122,15 @@ object Rewards {
         return dayKey(parsed.time - DAY + 12 * 60 * 60 * 1000L, zone) // midday avoids DST edge cases
     }
 
+    /**
+     * The streak to show right now: the stored count while it is alive (last check-in today or
+     * yesterday), otherwise 0, because missing a day breaks it even before the next check-in.
+     */
+    fun currentStreak(streakDays: Int, lastCheckInDay: String, now: Long = System.currentTimeMillis()): Int {
+        val today = dayKey(now)
+        return if (lastCheckInDay == today || lastCheckInDay == previousDayKey(today)) streakDays else 0
+    }
+
     /** Streak and Aura after checking in on [today], given the last check-in day and current streak. */
     fun checkIn(lastDay: String, today: String, currentStreak: Int, plus: Boolean): CheckInResult {
         if (lastDay == today) return CheckInResult(currentStreak, 0, alreadyCheckedIn = true, boxUnlocked = false)

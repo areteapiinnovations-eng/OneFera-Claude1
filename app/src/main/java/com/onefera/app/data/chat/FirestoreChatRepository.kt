@@ -68,10 +68,11 @@ class FirestoreChatRepository @Inject constructor(
     override fun conversation(conversationId: String): Flow<Conversation?> =
         conversations.document(conversationId).snapshotFlow().map { if (it.exists()) it.toConversation() else null }
 
-    override fun messages(conversationId: String): Flow<List<Message>> =
+    override fun messages(conversationId: String): Flow<List<Message>> = auth.uidFlow().flatMapLatest { uid ->
         conversations.document(conversationId).collection("messages")
             .orderBy("createdAt", Query.Direction.DESCENDING).limit(MESSAGE_LIMIT)
-            .snapshotFlow().map { s -> s.documents.map { it.toMessage(conversationId) } }
+            .snapshotFlow().map { s -> s.documents.map { it.toMessage(conversationId) }.filter { uid == null || uid !in it.deletedFor } }
+    }
 
     override fun totalUnread(): Flow<Int> = auth.uidFlow().flatMapLatest { uid ->
         if (uid == null) flowOf(0) else conversations().map { list -> list.count { it.unreadFor(uid) > 0 } }
@@ -103,13 +104,16 @@ class FirestoreChatRepository @Inject constructor(
     override suspend fun send(conversationId: String, message: OutgoingMessage, onProgress: (Float) -> Unit): Result<Unit> = runFriendly {
         val uid = auth.currentUid()
         val ref = conversations.document(conversationId).collection("messages").document()
-        val attachment = message.attachment?.let { uploadAttachment(conversationId, ref.id, it, message.attachmentType, onProgress) }
+        val attachment = message.existingAttachment
+            ?: message.attachment?.let { uploadAttachment(conversationId, ref.id, it, message.attachmentType, onProgress) }
+                ?.copy(durationMs = message.durationMs)
         val data = mutableMapOf<String, Any?>(
             "senderId" to uid,
             "text" to message.text.trim().take(MAX_TEXT),
             "createdAt" to FieldValue.serverTimestamp(),
             "unsent" to false,
         )
+        if (message.forwarded) data["forwarded"] = true
         if (attachment != null) {
             data["attachment"] = mapOf(
                 "url" to attachment.url,
@@ -117,6 +121,7 @@ class FirestoreChatRepository @Inject constructor(
                 "name" to attachment.name,
                 "sizeBytes" to attachment.sizeBytes,
                 "aspectRatio" to attachment.aspectRatio.toDouble(),
+                "durationMs" to attachment.durationMs,
             )
         }
         message.replyTo?.let { r ->
@@ -130,6 +135,21 @@ class FirestoreChatRepository @Inject constructor(
         conversations.document(conversationId).collection("messages").document(messageId)
             .update(mapOf("unsent" to true, "text" to "", "attachment" to null)).await()
     }
+
+    override suspend fun edit(conversationId: String, messageId: String, text: String): Result<Unit> = runFriendly {
+        val body = text.trim().take(MAX_TEXT)
+        if (body.isEmpty()) throw UserFacingException("A message can't be empty. Use Unsend to remove it.")
+        conversations.document(conversationId).collection("messages").document(messageId)
+            .update(mapOf("text" to body, "edited" to true)).await()
+    }
+
+    override suspend fun deleteForMe(conversationId: String, messageId: String): Result<Unit> = runFriendly {
+        conversations.document(conversationId).collection("messages").document(messageId)
+            .update("deletedFor", FieldValue.arrayUnion(auth.currentUid())).await()
+    }
+
+    override suspend fun forward(message: Message, toConversationId: String): Result<Unit> =
+        send(toConversationId, OutgoingMessage(text = message.text, existingAttachment = message.attachment, forwarded = true))
 
     override suspend fun markRead(conversationId: String) {
         val uid = runCatching { auth.currentUid() }.getOrNull() ?: return
@@ -157,6 +177,13 @@ class FirestoreChatRepository @Inject constructor(
             AttachmentType.Image -> {
                 val prepared = media.prepareImage(uri)
                 Prepared(prepared.file, "photo.jpg", "image/jpeg", prepared.aspectRatio) { media.cleanUp(prepared) }
+            }
+            AttachmentType.Audio -> {
+                val copy = File(context.cacheDir, "upload-$mid.m4a").also { f ->
+                    context.contentResolver.openInputStream(uri)?.use { input -> f.outputStream().use { input.copyTo(it) } }
+                        ?: throw UserFacingException("Couldn't read the recording.")
+                }
+                Prepared(copy, "voice.m4a", "audio/mp4", 1f) { copy.delete() }
             }
             AttachmentType.File -> {
                 val name = displayName(uri)
@@ -226,6 +253,7 @@ private fun DocumentSnapshot.toMessage(conversationId: String): Message {
                 name = it["name"] as? String ?: "",
                 sizeBytes = (it["sizeBytes"] as? Number)?.toLong() ?: 0L,
                 aspectRatio = (it["aspectRatio"] as? Number)?.toFloat() ?: 1f,
+                durationMs = (it["durationMs"] as? Number)?.toLong() ?: 0L,
             )
         },
         replyTo = r?.let {
@@ -233,5 +261,8 @@ private fun DocumentSnapshot.toMessage(conversationId: String): Message {
         },
         createdAt = getTimestamp("createdAt", DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)?.toDate()?.time ?: System.currentTimeMillis(),
         unsent = getBoolean("unsent") ?: false,
+        edited = getBoolean("edited") ?: false,
+        forwarded = getBoolean("forwarded") ?: false,
+        deletedFor = (get("deletedFor") as? List<*>)?.filterIsInstance<String>().orEmpty(),
     )
 }

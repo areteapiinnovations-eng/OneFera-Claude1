@@ -87,6 +87,10 @@ data class PostCardCallbacks(
     val onShare: () -> Unit,
     val onDelete: () -> Unit,
     val onPlayVideo: () -> Unit,
+    /** Author only: edit caption/location. */
+    val onEdit: () -> Unit = {},
+    /** Author only: switch comments on or off. */
+    val onToggleComments: () -> Unit = {},
 )
 
 @Composable
@@ -101,23 +105,33 @@ fun PostCard(
     val post = item.post
     val extras = OneFeraTheme.extras
     val actions = LocalAppActions.current
+    var viewerPage by remember(post.id) { mutableStateOf<Int?>(null) }
+    viewerPage?.let { page -> PostMediaViewer(post, startIndex = page, onDismiss = { viewerPage = null }) }
     Column(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(28.dp))
             .background(if (extras.isDark) extras.glass else MaterialTheme.colorScheme.surface),
     ) {
-        PostHeader(post, isMine, onDelete = callbacks.onDelete, onShare = callbacks.onShare)
+        PostHeader(post, isMine, callbacks)
         if (post.media.isNotEmpty()) {
-            PostMediaView(post, activePlayer, onDoubleTap = callbacks.onDoubleTapLike, onPlayVideo = callbacks.onPlayVideo)
+            PostMediaView(
+                post,
+                activePlayer,
+                onDoubleTap = callbacks.onDoubleTapLike,
+                onPlayVideo = callbacks.onPlayVideo,
+                onOpenFullScreen = { viewerPage = it },
+            )
         }
         if (post.products.isNotEmpty()) {
             ShopThePost(post, onOpen = actions.openProduct)
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             LikeButton(liked = item.liked, onClick = callbacks.onLike)
-            IconButton(onClick = callbacks.onComments) {
-                Icon(painterResource(R.drawable.ic_chat), contentDescription = "Comments", modifier = Modifier.size(24.dp))
+            if (!post.commentsOff) {
+                IconButton(onClick = callbacks.onComments) {
+                    Icon(painterResource(R.drawable.ic_chat), contentDescription = "Comments", modifier = Modifier.size(24.dp))
+                }
             }
             IconButton(onClick = callbacks.onShare) {
                 Icon(painterResource(R.drawable.ic_share), contentDescription = "Share", modifier = Modifier.size(24.dp))
@@ -142,15 +156,27 @@ fun PostCard(
             if (post.caption.isNotBlank()) {
                 Caption(post, onTag = actions.openTag, onAuthor = { actions.openUser(post.authorId) })
             }
-            if (post.commentCount > 0) {
-                Text(
+            when {
+                post.commentsOff -> Text("Comments are off", style = MaterialTheme.typography.bodyMedium, color = extras.muted)
+                post.commentCount > 0 -> Text(
                     if (post.commentCount == 1) "View 1 comment" else "View all ${post.commentCount} comments",
                     style = MaterialTheme.typography.bodyMedium,
                     color = extras.muted,
                     modifier = Modifier.clickable(onClick = callbacks.onComments),
                 )
+                // Call to action on a quiet post: one tap to the comment box.
+                else -> Text(
+                    "Add a comment…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = extras.muted,
+                    modifier = Modifier.clickable(onClickLabel = "Add a comment", onClick = callbacks.onComments),
+                )
             }
-            Text(timeAgo(post.createdAt), style = MaterialTheme.typography.labelSmall, color = extras.muted)
+            Text(
+                timeAgo(post.createdAt) + if (post.edited) " · edited" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = extras.muted,
+            )
         }
     }
 }
@@ -171,7 +197,8 @@ private fun ShopThePost(post: Post, onOpen: (String) -> Unit) {
 }
 
 @Composable
-private fun PostHeader(post: Post, isMine: Boolean, onDelete: () -> Unit, onShare: () -> Unit) {
+private fun PostHeader(post: Post, isMine: Boolean, callbacks: PostCardCallbacks) {
+    val onShare = callbacks.onShare
     val actions = LocalAppActions.current
     val extras = OneFeraTheme.extras
     var menu by remember { mutableStateOf(false) }
@@ -209,8 +236,19 @@ private fun PostHeader(post: Post, isMine: Boolean, onDelete: () -> Unit, onShar
                 DropdownMenuItem(text = { Text("View profile") }, onClick = { menu = false; actions.openUser(post.authorId) })
                 if (isMine) {
                     DropdownMenuItem(
+                        text = { Text("Edit post") },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_edit), null, modifier = Modifier.size(20.dp)) },
+                        onClick = { menu = false; callbacks.onEdit() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (post.commentsOff) "Turn on comments" else "Turn off comments") },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_chat), null, modifier = Modifier.size(20.dp)) },
+                        onClick = { menu = false; callbacks.onToggleComments() },
+                    )
+                    DropdownMenuItem(
                         text = { Text("Delete post", color = MaterialTheme.colorScheme.error) },
-                        onClick = { menu = false; onDelete() },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_delete), null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp)) },
+                        onClick = { menu = false; callbacks.onDelete() },
                     )
                 } else {
                     DropdownMenuItem(
@@ -230,10 +268,11 @@ private fun PostHeader(post: Post, isMine: Boolean, onDelete: () -> Unit, onShar
 }
 
 @Composable
-private fun PostMediaView(post: Post, activePlayer: Player?, onDoubleTap: () -> Unit, onPlayVideo: () -> Unit) {
+private fun PostMediaView(post: Post, activePlayer: Player?, onDoubleTap: () -> Unit, onPlayVideo: () -> Unit, onOpenFullScreen: (Int) -> Unit) {
     val ratio = (post.cover?.aspectRatio ?: 0.8f).coerceIn(0.8f, 1.91f)
     val heart = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    val pager = rememberPagerState { post.media.size }
     Box(
         Modifier
             .fillMaxWidth()
@@ -249,13 +288,13 @@ private fun PostMediaView(post: Post, activePlayer: Player?, onDoubleTap: () -> 
                             heart.animateTo(0f, tween(300, delayMillis = 350))
                         }
                     },
-                    onTap = { if (post.isVideo) onPlayVideo() },
+                    // Photos open full screen on tap; videos play inline and open full screen from the corner button.
+                    onTap = { if (post.isVideo) onPlayVideo() else onOpenFullScreen(pager.currentPage) },
                 )
             },
         contentAlignment = Alignment.Center,
     ) {
         if (post.media.size > 1) {
-            val pager = rememberPagerState { post.media.size }
             HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
                 MediaImage(post.media[page])
             }
@@ -295,6 +334,14 @@ private fun PostMediaView(post: Post, activePlayer: Player?, onDoubleTap: () -> 
                         Icon(painterResource(R.drawable.ic_play), contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
                     }
                 }
+            }
+        }
+        if (post.isVideo) {
+            IconButton(
+                onClick = { onOpenFullScreen(0) },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)).size(40.dp),
+            ) {
+                Icon(painterResource(R.drawable.ic_fullscreen), contentDescription = "Full screen", tint = Color.White, modifier = Modifier.size(22.dp))
             }
         }
         // Double-tap heart burst.

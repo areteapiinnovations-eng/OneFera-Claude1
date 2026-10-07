@@ -30,6 +30,7 @@ service cloud.firestore {
 
     function validProfileText(d) {
       return d.displayName is string && d.displayName.size() >= 2 && d.displayName.size() <= 40
+        && d.get('searchKeywords', []) is list && d.get('searchKeywords', []).size() <= 300
         && d.username is string && d.username.matches('^[a-z0-9][a-z0-9._]*[a-z0-9_]$')
         && !d.username.matches('.*[.][.].*')
         && d.username.size() >= 3 && d.username.size() <= 24
@@ -184,7 +185,12 @@ service cloud.firestore {
 
       // Authors may edit the caption/location; counters belong to Cloud Functions.
       allow update: if signedIn() && resource.data.authorId == me()
-        && changed().hasOnly(['caption', 'location', 'tags']);
+        && changed().hasOnly(['caption', 'location', 'tags', 'edited', 'commentsOff'])
+        && incoming().get('edited', false) is bool
+        && incoming().get('commentsOff', false) is bool
+        && incoming().caption is string && incoming().caption.size() <= 2200
+        && incoming().location is string && incoming().location.size() <= 80
+        && incoming().tags is list && incoming().tags.size() <= 30;
 
       allow delete: if signedIn() && resource.data.authorId == me();
 
@@ -201,7 +207,13 @@ service cloud.firestore {
           && incoming().author.uid == me()
           && incoming().text is string && incoming().text.size() >= 1 && incoming().text.size() <= 500
           && canSeePost(get(/databases/$(database)/documents/posts/$(postId)).data)
+          && get(/databases/$(database)/documents/posts/$(postId)).data.get('commentsOff', false) == false
           && !blockedBy(get(/databases/$(database)/documents/posts/$(postId)).data.authorId);
+        // Authors may fix their own comment's text.
+        allow update: if signedIn() && resource.data.authorId == me()
+          && changed().hasOnly(['text', 'edited'])
+          && incoming().text is string && incoming().text.size() >= 1 && incoming().text.size() <= 500
+          && incoming().edited == true;
         allow delete: if signedIn() && (resource.data.authorId == me()
           || get(/databases/$(database)/documents/posts/$(postId)).data.authorId == me());
       }
@@ -209,14 +221,30 @@ service cloud.firestore {
 
     // ------------------------------------------------------------ stories
 
+    // `followers` stories are for the author's followers; stories saved before audiences existed are public.
+    function canSeeStory(story) {
+      return signedIn() && (story.get('audience', 'public') == 'public' || story.authorId == me() || isFollower(story.authorId));
+    }
+
     match /stories/{storyId} {
-      allow read: if signedIn();
+      allow read: if canSeeStory(resource.data);
       allow create: if signedIn()
         && incoming().authorId == me()
         && incoming().author.uid == me()
         && incoming().expiresAt is int
-        && incoming().expiresAt <= request.time.toMillis() + 25 * 60 * 60 * 1000;
+        && incoming().expiresAt <= request.time.toMillis() + 25 * 60 * 60 * 1000
+        && incoming().get('audience', 'public') in ['public', 'followers']
+        && (incoming().get('audience', 'public') == 'followers' || get(userDoc(me())).data.isPrivate == false)
+        && incoming().get('mentions', []) is list && incoming().get('mentions', []).size() <= 10
+        && incoming().get('allowReplies', true) is bool;
       allow delete: if signedIn() && resource.data.authorId == me();
+
+      // Who has seen the story: each viewer records themselves; only the author reads the list.
+      match /views/{viewerUid} {
+        function story() { return get(/databases/$(database)/documents/stories/$(storyId)).data; }
+        allow create, update: if isOwner(viewerUid) && story().authorId != me() && canSeeStory(story());
+        allow read: if signedIn() && story().authorId == me();
+      }
     }
 
     // ------------------------------------------------------------ chat
@@ -255,10 +283,23 @@ service cloud.firestore {
           && incoming().text is string && incoming().text.size() <= 2000
           && (incoming().text.size() > 0 || incoming().get('attachment', null) != null)
           && incoming().unsent == false;
-        // Senders may unsend (blank out) their own messages.
-        allow update: if isMember(convo()) && resource.data.senderId == me()
-          && changed().hasOnly(['unsent', 'text', 'attachment'])
-          && incoming().unsent == true && incoming().text == '';
+        // Senders may unsend (blank out) their own messages, or fix the text within 15 minutes;
+        // any member may hide a message for themselves only.
+        allow update: if isMember(convo()) && (
+          (resource.data.senderId == me()
+            && changed().hasOnly(['unsent', 'text', 'attachment'])
+            && incoming().unsent == true && incoming().text == '')
+          || (resource.data.senderId == me()
+            && changed().hasOnly(['text', 'edited'])
+            && resource.data.unsent == false
+            && incoming().edited == true
+            && incoming().text is string && incoming().text.size() >= 1 && incoming().text.size() <= 2000
+            && request.time < resource.data.createdAt + duration.value(15, 'm'))
+          || (changed().hasOnly(['deletedFor'])
+            && incoming().deletedFor is list
+            && incoming().deletedFor.hasAll(resource.data.get('deletedFor', []))
+            && incoming().deletedFor.toSet().difference(resource.data.get('deletedFor', []).toSet()).hasOnly([me()]))
+        );
         allow delete: if false;
       }
     }
@@ -343,7 +384,7 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow create: if signedIn()
         && incoming().reporterId == me()
-        && incoming().targetType in ['Post', 'Comment', 'User', 'Message', 'Product']
+        && incoming().targetType in ['Post', 'Comment', 'User', 'Message', 'Product', 'Story']
         && incoming().targetId is string && incoming().targetId.size() > 0 && incoming().targetId.size() <= 128
         && incoming().reason in ['Spam', 'Harassment', 'Hate', 'Nudity', 'Violence', 'SelfHarm', 'Fake', 'Counterfeit', 'Other']
         && incoming().details is string && incoming().details.size() <= 500

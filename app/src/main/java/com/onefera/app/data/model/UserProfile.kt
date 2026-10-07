@@ -36,6 +36,9 @@ data class UserProfile(
     val membershipExpiresAt: Long = 0L,
 ) {
     val auraGrade: AuraGrade get() = AuraGrade.forPoints(auraPoints)
+    /** Streak as it stands today: 0 once a day has been missed, even before the next check-in. */
+    val currentStreak: Int get() = Rewards.currentStreak(streakDays, lastCheckInDay)
+    fun checkedInToday(now: Long = System.currentTimeMillis()): Boolean = lastCheckInDay == Rewards.dayKey(now)
     val membership: Membership get() = Membership(membershipPlan, membershipExpiresAt)
 }
 

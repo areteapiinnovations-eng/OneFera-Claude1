@@ -79,6 +79,7 @@ class FirestoreUserRepository @Inject constructor() : UserRepository {
                 mapOf(
                     "displayName" to update.displayName,
                     "displayNameLower" to update.displayName.lowercase(),
+                    "searchKeywords" to UserSearch.keywordsFor(update.displayName, update.username),
                     "username" to update.username,
                     "bio" to update.bio,
                     "vibe" to update.vibe,
@@ -140,6 +141,7 @@ private fun UserProfile.toMap(): Map<String, Any?> = mapOf(
     "uid" to uid,
     "displayName" to displayName,
     "displayNameLower" to displayName.lowercase(),
+    "searchKeywords" to UserSearch.keywordsFor(displayName, username),
     "username" to username,
     "email" to email,
     "bio" to bio,
