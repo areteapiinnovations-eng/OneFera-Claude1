@@ -89,7 +89,9 @@ class DemoNearRepository @Inject constructor(
     private fun offset(from: LatLng, eastKm: Double, northKm: Double): LatLng =
         LatLng(from.lat + northKm / 110.574, from.lng + eastKm / (111.320 * cos(Math.toRadians(from.lat))))
 
-    override suspend fun people(location: LatLng, radius: NearRadius): Result<List<NearbyPerson>> = runCatching {
+    override fun people(location: LatLng, radius: NearRadius): Flow<Result<List<NearbyPerson>>> = kotlinx.coroutines.flow.flow { emit(demoPeople(location, radius)) }
+
+    private suspend fun demoPeople(location: LatLng, radius: NearRadius): Result<List<NearbyPerson>> = runCatching {
         uid()
         delay(400)
         val spots = mapOf(

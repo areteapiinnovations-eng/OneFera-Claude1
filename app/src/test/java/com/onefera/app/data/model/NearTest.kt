@@ -31,4 +31,33 @@ class NearTest {
         assertEquals("~3 km away", Geo.label(3.2))
         assertTrue(Geo.bearing(LatLng(0.0, 0.0), LatLng(1.0, 0.0)) < 1.0) // due north
     }
+
+    @Test
+    fun `every radius's cells cover the whole circle`() {
+        // Hyderabad and Delhi latitudes; sample points on the radius edge in 16 directions.
+        for (centre in listOf(LatLng(17.39, 78.49), LatLng(28.61, 77.21))) {
+            for (radius in NearRadius.entries) {
+                val cells = Geo.coveringCells(centre, radius.precision)
+                for (step in 0 until 16) {
+                    val angle = Math.toRadians(step * 22.5)
+                    val northKm = radius.km * kotlin.math.cos(angle)
+                    val eastKm = radius.km * kotlin.math.sin(angle)
+                    val edge = LatLng(
+                        centre.lat + northKm / 110.574,
+                        centre.lng + eastKm / (111.320 * kotlin.math.cos(Math.toRadians(centre.lat))),
+                    )
+                    assertTrue("$radius misses $edge", Geo.geohash(edge, radius.precision) in cells)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `two phones side by side land in each other's search`() {
+        val a = Geo.coarse(LatLng(17.38512, 78.48674))
+        val b = Geo.coarse(LatLng(17.38549, 78.48701))
+        assertTrue(Geo.distanceKm(a, b) <= NearRadius.Close.km)
+        assertTrue(Geo.geohash(b, 6).startsWith(Geo.geohash(b, NearRadius.Close.precision)))
+        assertTrue(Geo.geohash(b, NearRadius.Close.precision) in Geo.coveringCells(a, NearRadius.Close.precision))
+    }
 }

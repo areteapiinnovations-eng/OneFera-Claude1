@@ -23,6 +23,10 @@ interface NearRepository {
     /** Refreshes the user's approximate position while visible. */
     suspend fun refresh(location: LatLng)
 
-    suspend fun people(location: LatLng, radius: NearRadius): Result<List<NearbyPerson>>
+    /**
+     * People visible around [location], kept up to date: someone turning Near on, moving or
+     * hiding shows up without a manual refresh. Emits a failure if the query can't run.
+     */
+    fun people(location: LatLng, radius: NearRadius): Flow<Result<List<NearbyPerson>>>
     suspend fun stores(location: LatLng, radius: NearRadius): Result<List<NearbyStore>>
 }

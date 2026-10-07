@@ -33,7 +33,9 @@ data class NearbyStore(
 
 enum class NearRadius(val km: Int, val label: String, val precision: Int) {
     Close(2, "2 km", 5),
-    Around(5, "5 km", 5),
+    // Precision-5 cells are ~4.9 km wide (narrower in longitude away from the equator), so the
+    // 9-cell block only covers ~4 km around you; 5 km needs the next size up.
+    Around(5, "5 km", 4),
     City(15, "15 km", 4),
 }
 
