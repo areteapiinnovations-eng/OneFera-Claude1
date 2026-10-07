@@ -40,8 +40,9 @@ android {
         applicationId = "com.onefera.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        // Raise versionCode by 1 for every build you upload to Google Play or share with testers.
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -136,6 +137,8 @@ dependencies {
     implementation(libs.firebase.functions)
     implementation(libs.razorpay.checkout)
     implementation(libs.play.billing)
+    // Google Play in-app updates (the "update available" prompt for Play installs).
+    implementation(libs.play.app.update.ktx)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

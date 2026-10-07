@@ -578,3 +578,11 @@ describe('seller onboarding', () => {
     await assertFails(setDoc(doc(db('pat'), 'sellerApplications/pat'), { status: 'Approved' }));
   });
 });
+
+describe('app config', () => {
+  it('is readable by anyone, writable by no one', async () => {
+    await seed((f) => setDoc(doc(f, 'config/app'), { minVersionCode: 1, latestVersionCode: 2 }));
+    await assertSucceeds(getDoc(doc(env.unauthenticatedContext().firestore(), 'config/app')));
+    await assertFails(setDoc(doc(db('alice'), 'config/app'), { minVersionCode: 99 }));
+  });
+});

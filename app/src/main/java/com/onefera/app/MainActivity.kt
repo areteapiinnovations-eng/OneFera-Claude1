@@ -16,6 +16,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onefera.app.core.designsystem.theme.OneFeraTheme
 import com.onefera.app.data.push.DeepLinks
+import com.onefera.app.feature.update.UpdateGate
 import com.onefera.app.navigation.OneFeraNavHost
 import com.onefera.app.navigation.RootUiState
 import com.onefera.app.navigation.RootViewModel
@@ -51,12 +52,15 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
             ) {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                     if (ready != null) {
-                        OneFeraNavHost(
-                            startDestination = ready.startDestination,
-                            isSignedIn = ready.isSignedIn,
-                            isDemoMode = ready.isDemoMode,
-                            deepLinks = deepLinks,
-                        )
+                        // Shows "Update available" / "Update required" over the app when a newer build exists.
+                        UpdateGate {
+                            OneFeraNavHost(
+                                startDestination = ready.startDestination,
+                                isSignedIn = ready.isSignedIn,
+                                isDemoMode = ready.isDemoMode,
+                                deepLinks = deepLinks,
+                            )
+                        }
                     }
                 }
             }
