@@ -161,10 +161,10 @@ tap_text "Profile menu";              sleep 2
 tap_text "Become a Seller";           shot 23a-become-seller 3
 tap_text "Start registration";        shot 23b-seller-form 3
 if [ -n "$IME" ] && [ "$IME" != "null" ]; then
-  type_into "Store name" "Asha Studio"
+  type_into "Store name" "Asha%sStudio"
   type_into "PAN" "ABCDE1234F"
   type_into "Mobile number" "9876543210"
-  type_into "Address" "12 MG Road"
+  type_into "Address" "12%sMG%sRoad"
   type_into "City" "Pune"
   type_into "Pincode" "411001"
   type_into "State" "Maharashtra"
