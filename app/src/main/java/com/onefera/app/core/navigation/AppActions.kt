@@ -12,6 +12,8 @@ data class AppActions(
     val openPost: (postId: String) -> Unit = {},
     val openTag: (tag: String) -> Unit = {},
     val openStories: (authorUid: String) -> Unit = {},
+    /** Picks a photo and opens the story editor. */
+    val createStory: () -> Unit = {},
     val openFollowList: (uid: String, followers: Boolean) -> Unit = { _, _ -> },
     val openNotifications: () -> Unit = {},
     val createPost: (reel: Boolean) -> Unit = {},
@@ -24,6 +26,8 @@ data class AppActions(
     val openOrder: (orderId: String) -> Unit = {},
     val openWishlist: () -> Unit = {},
     val openSellerHub: () -> Unit = {},
+    /** Seller registration, or its status once submitted. */
+    val becomeSeller: () -> Unit = {},
     /** Opens the listing editor; an empty id creates a new listing. */
     val editListing: (productId: String) -> Unit = {},
     val openSellerOrder: (orderId: String) -> Unit = {},

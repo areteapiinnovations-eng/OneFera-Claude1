@@ -19,8 +19,11 @@ OneFera ("we", "us") is operated by **[legal entity name, registered address]**.
 | Order and purchase history | When you buy or sell | For orders, refunds, tax and seller analytics |
 | Approximate location (~1 km) | Only if you use Near | To show nearby people and stores; only stored while you choose to be visible or list a store |
 | Device push token | If notifications are on | To send notifications |
+| Voice messages | When you record one in a chat | To deliver it to the person you're chatting with |
+| Seller details: legal name, PAN, GSTIN, business address, phone, UPI ID or bank account | When you register as a seller | To verify sellers, prevent fraud, pay out sales and meet tax rules. Never shown publicly; only your store name is |
+| Story views and mentions | When you view or mention someone in a story | To show a story's author who has seen it, and to notify the people you mention |
 
-We **do not** collect your precise location, contacts, or full payment card or UPI details. Payments are handled by **Razorpay** and subscriptions by **Google Play**, under their own privacy policies.
+We **do not** collect your precise location or contacts, and we never collect buyers' card or UPI details. Payments are handled by **Razorpay** and subscriptions by **Google Play**, under their own privacy policies.
 
 ## 2. How we use data
 

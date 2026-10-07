@@ -15,7 +15,7 @@ enum class ReportReason(val label: String) {
     Other("Something else"),
 }
 
-enum class ReportTarget { Post, Comment, User, Message, Product }
+enum class ReportTarget { Post, Comment, User, Message, Product, Story }
 
 /**
  * Safety tools required for user-generated content: blocking (hides the person everywhere and

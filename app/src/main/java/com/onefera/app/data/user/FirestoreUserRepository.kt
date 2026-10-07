@@ -11,6 +11,7 @@ import com.onefera.app.data.backend.UserFacingException
 import com.onefera.app.data.model.AccountMode
 import com.onefera.app.data.model.MembershipPlan
 import com.onefera.app.data.model.ProfileUpdate
+import com.onefera.app.data.model.SellerStatus
 import com.onefera.app.data.model.UserProfile
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -79,6 +80,7 @@ class FirestoreUserRepository @Inject constructor() : UserRepository {
                 mapOf(
                     "displayName" to update.displayName,
                     "displayNameLower" to update.displayName.lowercase(),
+                    "searchKeywords" to UserSearch.keywordsFor(update.displayName, update.username),
                     "username" to update.username,
                     "bio" to update.bio,
                     "vibe" to update.vibe,
@@ -98,6 +100,11 @@ class FirestoreUserRepository @Inject constructor() : UserRepository {
     }
 
     override suspend fun setAccountMode(uid: String, mode: AccountMode): Result<Unit> = runCatchingFriendly {
+        if (mode == AccountMode.Seller) {
+            val profile = userDoc(uid).get().await()
+            val approved = profile.getString("sellerStatus") == SellerStatus.Approved.name || profile.getString("accountMode") == AccountMode.Seller.name
+            if (!approved) throw UserFacingException("Register as a seller first. Your store unlocks once it's approved.")
+        }
         userDoc(uid).update("accountMode", mode.name).await()
         Unit
     }
@@ -140,6 +147,7 @@ private fun UserProfile.toMap(): Map<String, Any?> = mapOf(
     "uid" to uid,
     "displayName" to displayName,
     "displayNameLower" to displayName.lowercase(),
+    "searchKeywords" to UserSearch.keywordsFor(displayName, username),
     "username" to username,
     "email" to email,
     "bio" to bio,
@@ -149,7 +157,7 @@ private fun UserProfile.toMap(): Map<String, Any?> = mapOf(
     "birthDate" to birthDate,
     "isPrivate" to isPrivate,
     "isMinor" to isMinor,
-    "accountMode" to accountMode.name,
+    "accountMode" to AccountMode.Personal.name,
     "verified" to false,
     "auraPoints" to 0,
     "streakDays" to 0,
@@ -172,6 +180,7 @@ private fun DocumentSnapshot.toUserProfile(): UserProfile = UserProfile(
     isPrivate = getBoolean("isPrivate") ?: false,
     isMinor = getBoolean("isMinor") ?: false,
     accountMode = runCatching { AccountMode.valueOf(getString("accountMode").orEmpty()) }.getOrDefault(AccountMode.Personal),
+    sellerStatus = runCatching { SellerStatus.valueOf(getString("sellerStatus").orEmpty()) }.getOrDefault(SellerStatus.None),
     verified = getBoolean("verified") ?: false,
     auraPoints = getLong("auraPoints")?.toInt() ?: 0,
     streakDays = getLong("streakDays")?.toInt() ?: 0,

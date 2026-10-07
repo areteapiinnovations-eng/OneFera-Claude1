@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.onefera.app.data.auth.AuthRepository
 import com.onefera.app.data.auth.SessionState
+import com.onefera.app.data.model.PostEdit
 import com.onefera.app.data.model.StoryGroup
 import com.onefera.app.data.model.UserSummary
 import com.onefera.app.data.social.FeedScope
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.onefera.app.data.moderation.ModerationRepository
@@ -38,6 +40,7 @@ data class FeedUiState(
     val seenStoryIds: Set<String> = emptySet(),
     val suggestions: List<UserSummary> = emptyList(),
     val myUid: String? = null,
+    val following: Set<String> = emptySet(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -57,23 +60,26 @@ class FeedViewModel @Inject constructor(
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages
 
-    private val items = scope.flatMapLatest { s -> posts.feed(s).withInteractions(posts, blocked).map { s to it } }
+    private val items = scope.flatMapLatest { s ->
+        posts.feed(s).withInteractions(posts, blocked).map<List<FeedItem>, Pair<FeedScope, List<FeedItem>>?> { s to it }.onStart { emit(null) }
+    }
 
     val state: StateFlow<FeedUiState> = combine(
         items,
         combine(stories.storyGroups(), blocked) { groups, hidden -> groups.filter { it.author.uid !in hidden } },
-        seenStories.seen,
+        combine(seenStories.seen, social.followingIds()) { seen, following -> seen to following },
         social.suggestions(),
         auth.session.map { (it as? SessionState.SignedIn)?.uid },
-    ) { (feedScope, list), storyGroups, seen, suggestions, uid ->
+    ) { scoped, storyGroups, (seen, following), suggestions, uid ->
         FeedUiState(
-            loading = false,
-            scope = feedScope,
-            items = list,
+            loading = scoped == null,
+            scope = scoped?.first ?: scope.value,
+            items = scoped?.second.orEmpty(),
             stories = storyGroups,
             seenStoryIds = seen,
             suggestions = suggestions.take(10),
             myUid = uid,
+            following = following,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedUiState())
 
@@ -89,6 +95,25 @@ class FeedViewModel @Inject constructor(
     fun like(item: FeedItem) = launchAction { actions.like(item) }
     fun toggleSave(item: FeedItem) = launchAction(if (item.saved) "Removed from saved" else "Saved ✨") { actions.toggleSave(item) }
     fun delete(item: FeedItem) = launchAction("Post deleted") { actions.delete(item) }
+
+    private val _saving = MutableStateFlow(false)
+    /** True while an edit is being saved. */
+    val saving: StateFlow<Boolean> = _saving.asStateFlow()
+
+    /** Saves an edit; [onDone] runs only when it succeeded, so the dialog stays open on failure. */
+    fun edit(item: FeedItem, edit: PostEdit, onDone: () -> Unit) {
+        if (_saving.value) return
+        _saving.value = true
+        viewModelScope.launch {
+            actions.edit(item, edit)
+                .onSuccess { _messages.emit("Post updated ✨"); onDone() }
+                .onFailure { _messages.emit(it.message ?: "Couldn't save your changes") }
+            _saving.value = false
+        }
+    }
+
+    fun toggleComments(item: FeedItem) =
+        launchAction(if (item.post.commentsOff) "Comments are on" else "Comments are off") { actions.toggleComments(item) }
 
     fun follow(user: UserSummary) = viewModelScope.launch {
         social.follow(user)

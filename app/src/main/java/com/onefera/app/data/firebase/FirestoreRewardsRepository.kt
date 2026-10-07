@@ -20,7 +20,10 @@ import com.onefera.app.data.model.MysteryReward
 import com.onefera.app.data.model.Rewards
 import com.onefera.app.data.rewards.RewardsRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -65,20 +68,31 @@ class FirestoreRewardsRepository @Inject constructor(private val auth: AuthRepos
         if (uid == null) {
             flowOf(BoxStatus())
         } else {
-            val today = Rewards.dayKey(System.currentTimeMillis())
-            combine(user(uid).snapshotFlow(), user(uid).collection("boxes").document(today).snapshotFlow()) { profile, box ->
-                val plan = Membership(
-                    runCatching { MembershipPlan.valueOf(profile.getString("membershipPlan").orEmpty()) }.getOrDefault(MembershipPlan.None),
-                    profile.getLong("membershipExpiresAt") ?: 0L,
-                ).active()
-                BoxStatus(
-                    checkedInToday = profile.getString("lastCheckInDay") == today,
-                    opened = box.getLong("opened")?.toInt() ?: 0,
-                    allowed = Rewards.boxesPerDay(plan),
-                )
+            // Re-evaluate at midnight (India time) so an open screen rolls over to the new day's box.
+            dayKeys().flatMapLatest { today ->
+                combine(user(uid).snapshotFlow(), user(uid).collection("boxes").document(today).snapshotFlow()) { profile, box ->
+                    val plan = Membership(
+                        runCatching { MembershipPlan.valueOf(profile.getString("membershipPlan").orEmpty()) }.getOrDefault(MembershipPlan.None),
+                        profile.getLong("membershipExpiresAt") ?: 0L,
+                    ).active()
+                    BoxStatus(
+                        checkedInToday = profile.getString("lastCheckInDay") == today,
+                        opened = box.getLong("opened")?.toInt() ?: 0,
+                        allowed = Rewards.boxesPerDay(plan),
+                        wonToday = (box.get("won") as? List<*>)?.filterIsInstance<String>().orEmpty(),
+                    )
+                }
             }
         }
     }
+
+    /** Emits the current day key and again whenever it changes. */
+    private fun dayKeys(): Flow<String> = flow {
+        while (true) {
+            emit(Rewards.dayKey(System.currentTimeMillis()))
+            delay(60_000)
+        }
+    }.distinctUntilChanged()
 
     override suspend fun openMysteryBox(): Result<MysteryReward> = runFriendly {
         auth.currentUid()

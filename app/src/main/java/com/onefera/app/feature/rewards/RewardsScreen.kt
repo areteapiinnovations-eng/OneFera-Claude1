@@ -188,7 +188,7 @@ fun RewardsScreen(onBack: () -> Unit, viewModel: RewardsViewModel = hiltViewMode
 @Composable
 private fun StreakCard(profile: UserProfile?, box: BoxStatus, onCheckIn: () -> Unit) {
     val extras = OneFeraTheme.extras
-    val streak = profile?.streakDays ?: 0
+    val streak = profile?.currentStreak ?: 0
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(extras.gradientBrush()).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -282,6 +282,13 @@ private fun MysteryBoxCard(box: BoxStatus, opening: Boolean, onOpen: () -> Unit)
                     style = MaterialTheme.typography.bodySmall,
                     color = extras.muted,
                 )
+            }
+        }
+        if (box.wonToday.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("Today's wins", style = MaterialTheme.typography.labelLarge)
+            box.wonToday.forEach { win ->
+                Text("🎉 ${win.substringBefore(" · #")}", style = MaterialTheme.typography.bodySmall, color = extras.muted)
             }
         }
         Spacer(Modifier.height(12.dp))

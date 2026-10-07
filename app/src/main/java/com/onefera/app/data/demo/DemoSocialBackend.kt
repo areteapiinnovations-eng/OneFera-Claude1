@@ -184,8 +184,29 @@ class DemoSocialBackend @Inject constructor(
         }
     }
 
+    suspend fun updatePost(postId: String, transform: (Post) -> Post) {
+        update { s -> s.copy(posts = s.posts.map { if (it.id == postId) transform(it) else it }) to Unit }
+    }
+
+    suspend fun editComment(commentId: String, text: String) {
+        update { s -> s.copy(comments = s.comments.map { if (it.id == commentId) it.copy(text = text, edited = true) else it }) to Unit }
+    }
+
+    suspend fun deleteComment(comment: Comment) {
+        update { s ->
+            s.copy(
+                comments = s.comments.filterNot { it.id == comment.id },
+                posts = s.posts.map { if (it.id == comment.postId) it.copy(commentCount = (it.commentCount - 1).coerceAtLeast(0)) else it },
+            ) to Unit
+        }
+    }
+
     suspend fun addStory(story: Story) {
         update { s -> s.copy(stories = s.stories + story) to Unit }
+    }
+
+    suspend fun deleteStory(storyId: String) {
+        update { s -> s.copy(stories = s.stories.filterNot { it.id == storyId }) to Unit }
     }
 
     suspend fun follow(me: UserSummary, target: UserSummary, isPrivate: Boolean) {

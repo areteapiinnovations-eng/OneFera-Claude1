@@ -20,6 +20,8 @@ data class UserProfile(
     val isPrivate: Boolean = false,
     val isMinor: Boolean = false,
     val accountMode: AccountMode = AccountMode.Personal,
+    /** Seller onboarding state; Seller mode is available only once approved. */
+    val sellerStatus: SellerStatus = SellerStatus.None,
     val verified: Boolean = false,
     val auraPoints: Int = 0,
     val streakDays: Int = 0,
@@ -36,7 +38,12 @@ data class UserProfile(
     val membershipExpiresAt: Long = 0L,
 ) {
     val auraGrade: AuraGrade get() = AuraGrade.forPoints(auraPoints)
+    /** Streak as it stands today: 0 once a day has been missed, even before the next check-in. */
+    val currentStreak: Int get() = Rewards.currentStreak(streakDays, lastCheckInDay)
+    fun checkedInToday(now: Long = System.currentTimeMillis()): Boolean = lastCheckInDay == Rewards.dayKey(now)
     val membership: Membership get() = Membership(membershipPlan, membershipExpiresAt)
+    /** Approved sellers (and accounts already in Seller mode before onboarding existed). */
+    val canUseSellerMode: Boolean get() = sellerStatus == SellerStatus.Approved || accountMode == AccountMode.Seller
 }
 
 /** Fields a user can change from Edit Profile. */

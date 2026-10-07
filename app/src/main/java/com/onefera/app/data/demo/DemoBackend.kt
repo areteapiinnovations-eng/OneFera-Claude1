@@ -12,6 +12,7 @@ import com.onefera.app.data.auth.SessionState
 import com.onefera.app.data.backend.ApplicationScope
 import com.onefera.app.data.backend.UserFacingException
 import com.onefera.app.data.model.AccountMode
+import com.onefera.app.data.model.Rewards
 import com.onefera.app.data.model.ProfileUpdate
 import com.onefera.app.data.model.UserProfile
 import com.onefera.app.data.user.UserRepository
@@ -181,6 +182,8 @@ class DemoBackend @Inject constructor(
             verified = true,
             auraPoints = 525,
             streakDays = 3,
+            // Checked in yesterday, so today's check-in continues the streak to day 4.
+            lastCheckInDay = Rewards.dayKey(System.currentTimeMillis() - 24 * 60 * 60 * 1000L),
             postsCount = 6,
             followersCount = 11,
             followingCount = 14,
@@ -253,8 +256,13 @@ class DemoUserRepository @Inject constructor(private val backend: DemoBackend) :
             url
         }
 
-    override suspend fun setAccountMode(uid: String, mode: AccountMode): Result<Unit> =
-        backend.saveProfile(uid) { it.copy(accountMode = mode) }
+    override suspend fun setAccountMode(uid: String, mode: AccountMode): Result<Unit> = runCatching {
+        val profile = backend.profileNow(uid) ?: throw UserFacingException("Account not found.")
+        if (mode == AccountMode.Seller && !profile.canUseSellerMode) {
+            throw UserFacingException("Register as a seller first. Your store unlocks once it's approved.")
+        }
+        backend.saveProfile(uid) { it.copy(accountMode = mode) }.getOrThrow()
+    }
 
     override suspend fun setPrivate(uid: String, isPrivate: Boolean): Result<Unit> =
         backend.saveProfile(uid) { it.copy(isPrivate = isPrivate) }

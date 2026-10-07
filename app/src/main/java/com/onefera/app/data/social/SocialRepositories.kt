@@ -6,7 +6,10 @@ import com.onefera.app.data.model.Comment
 import com.onefera.app.data.model.FollowState
 import com.onefera.app.data.model.Post
 import com.onefera.app.data.model.PostDraft
+import com.onefera.app.data.model.PostEdit
+import com.onefera.app.data.model.Story
 import com.onefera.app.data.model.StoryGroup
+import com.onefera.app.data.model.StoryOptions
 import com.onefera.app.data.model.TagSummary
 import com.onefera.app.data.model.UserSummary
 import kotlinx.coroutines.flow.Flow
@@ -29,19 +32,31 @@ interface PostRepository {
     suspend fun setLiked(post: Post, liked: Boolean): Result<Unit>
     suspend fun setSaved(post: Post, saved: Boolean): Result<Unit>
     suspend fun createPost(draft: PostDraft, onProgress: (Float) -> Unit): Result<Post>
+    suspend fun updatePost(post: Post, edit: PostEdit): Result<Unit>
+    suspend fun setCommentsOff(post: Post, off: Boolean): Result<Unit>
     suspend fun deletePost(post: Post): Result<Unit>
 
     fun comments(postId: String): Flow<List<Comment>>
     suspend fun addComment(post: Post, text: String): Result<Unit>
+    suspend fun editComment(comment: Comment, text: String): Result<Unit>
+    /** Allowed for the comment's author and the post's author. */
+    suspend fun deleteComment(comment: Comment): Result<Unit>
 
     suspend fun searchTags(prefix: String): List<TagSummary>
     suspend fun trendingTags(): List<TagSummary>
 }
 
 interface StoryRepository {
-    /** Active (last 24 h) stories grouped by author; the signed-in user's group comes first. */
+    /** Active (last 24 h) stories the user may see, grouped by author; the signed-in user's group comes first. */
     fun storyGroups(): Flow<List<StoryGroup>>
-    suspend fun addStory(image: Uri, onProgress: (Float) -> Unit): Result<Unit>
+    /** Posts a finished (already edited) story image. */
+    suspend fun addStory(image: Uri, options: StoryOptions, onProgress: (Float) -> Unit): Result<Unit>
+    /** Removes one of the user's own stories. */
+    suspend fun deleteStory(story: Story): Result<Unit>
+    /** Records that the signed-in user has seen [story] (no-op for their own). */
+    suspend fun markViewed(story: Story)
+    /** Who has seen one of the user's own stories. */
+    fun viewers(storyId: String): Flow<List<UserSummary>>
 }
 
 /** Follows, follow requests, people search and suggestions. */

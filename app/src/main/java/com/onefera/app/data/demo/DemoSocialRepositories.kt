@@ -13,11 +13,14 @@ import com.onefera.app.data.model.FollowState
 import com.onefera.app.data.model.MediaType
 import com.onefera.app.data.model.Post
 import com.onefera.app.data.model.PostDraft
+import com.onefera.app.data.model.PostEdit
 import com.onefera.app.data.model.PostMedia
 import com.onefera.app.data.model.PostType
 import com.onefera.app.data.model.PostVisibility
 import com.onefera.app.data.model.Story
+import com.onefera.app.data.model.StoryAudience
 import com.onefera.app.data.model.StoryGroup
+import com.onefera.app.data.model.StoryOptions
 import com.onefera.app.data.model.TagSummary
 import com.onefera.app.data.model.UserSummary
 import com.onefera.app.data.model.extractHashtags
@@ -142,6 +145,16 @@ class DemoPostRepository @Inject constructor(
         post
     }
 
+    override suspend fun updatePost(post: Post, edit: PostEdit): Result<Unit> = runCatching {
+        if (post.authorId != auth.demoUid()) throw UserFacingException("You can only edit your own posts.")
+        social.updatePost(post.id) { it.copy(caption = edit.caption.trim(), location = edit.location.trim(), tags = edit.tags, edited = true) }
+    }
+
+    override suspend fun setCommentsOff(post: Post, off: Boolean): Result<Unit> = runCatching {
+        if (post.authorId != auth.demoUid()) throw UserFacingException("Only the author can change this.")
+        social.updatePost(post.id) { it.copy(commentsOff = off) }
+    }
+
     override suspend fun deletePost(post: Post): Result<Unit> = runCatching {
         if (post.authorId != auth.demoUid()) throw UserFacingException("You can only delete your own posts.")
         social.deletePost(post)
@@ -151,7 +164,22 @@ class DemoPostRepository @Inject constructor(
         social.select { s -> s.comments.filter { it.postId == postId }.sortedBy { it.createdAt } }
 
     override suspend fun addComment(post: Post, text: String): Result<Unit> = runCatching {
+        if (post.commentsOff) throw UserFacingException("Comments are off for this post.")
         social.addComment(accounts.summary(auth.demoUid()), post, text.trim().take(500))
+    }
+
+    override suspend fun editComment(comment: Comment, text: String): Result<Unit> = runCatching {
+        if (comment.author.uid != auth.demoUid()) throw UserFacingException("You can only edit your own comments.")
+        val body = text.trim().take(500)
+        if (body.isEmpty()) throw UserFacingException("A comment can't be empty.")
+        social.editComment(comment.id, body)
+    }
+
+    override suspend fun deleteComment(comment: Comment): Result<Unit> = runCatching {
+        val uid = auth.demoUid()
+        val post = social.snapshot().posts.firstOrNull { it.id == comment.postId }
+        if (comment.author.uid != uid && post?.authorId != uid) throw UserFacingException("You can't delete this comment.")
+        social.deleteComment(comment)
     }
 
     override suspend fun searchTags(prefix: String): List<TagSummary> {
@@ -182,6 +210,7 @@ class DemoStoryRepository @Inject constructor(
         social.select { s ->
             val now = System.currentTimeMillis()
             s.stories.filter { it.expiresAt > now }
+                .filter { it.audience == StoryAudience.PUBLIC || it.author.uid == uid || "$uid>${it.author.uid}" in s.follows }
                 .groupBy { it.author.uid }
                 .map { (authorId, items) -> StoryGroup(items.first().author, items.sortedBy { it.createdAt }, authorId == uid) }
                 .sortedWith(
@@ -192,7 +221,17 @@ class DemoStoryRepository @Inject constructor(
         }
     }
 
-    override suspend fun addStory(image: Uri, onProgress: (Float) -> Unit): Result<Unit> = runCatching {
+    override suspend fun deleteStory(story: Story): Result<Unit> = runCatching {
+        if (story.author.uid != auth.demoUid()) throw UserFacingException("You can only delete your own stories.")
+        social.deleteStory(story.id)
+    }
+
+    override suspend fun markViewed(story: Story) = Unit
+
+    // Demo creators don't watch stories, so the list is honestly empty.
+    override fun viewers(storyId: String): Flow<List<UserSummary>> = flowOf(emptyList())
+
+    override suspend fun addStory(image: Uri, options: StoryOptions, onProgress: (Float) -> Unit): Result<Unit> = runCatching {
         val uid = auth.demoUid()
         val me = accounts.summary(uid)
         onProgress(0.1f)
@@ -204,7 +243,18 @@ class DemoStoryRepository @Inject constructor(
         media.cleanUp(prepared)
         onProgress(0.8f)
         val now = System.currentTimeMillis()
-        social.addStory(Story(id, me, Uri.fromFile(file).toString(), now, now + 24 * 60 * 60 * 1000L))
+        social.addStory(
+            Story(
+                id = id,
+                author = me,
+                mediaUrl = Uri.fromFile(file).toString(),
+                createdAt = now,
+                expiresAt = now + 24 * 60 * 60 * 1000L,
+                audience = if (me.isPrivate) StoryAudience.FOLLOWERS else options.audience,
+                mentions = options.mentions.filter { it.uid != me.uid }.take(10),
+                allowReplies = options.allowReplies,
+            ),
+        )
         onProgress(1f)
     }
 }
@@ -260,7 +310,8 @@ class DemoSocialRepository @Inject constructor(
     override fun suggestions(): Flow<List<UserSummary>> = auth.uidFlow().flatMapLatest { uid ->
         combine(accounts.profiles, followingIds()) { profiles, following ->
             profiles.filter { it.uid != uid && it.uid !in following && it.username.isNotEmpty() }
-                .sortedByDescending { it.followersCount }.map { it.toSummary() }
+                .sortedWith(compareByDescending<com.onefera.app.data.model.UserProfile> { it.createdAt }.thenByDescending { it.followersCount })
+                .map { it.toSummary() }
         }
     }
 

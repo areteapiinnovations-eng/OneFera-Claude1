@@ -75,6 +75,8 @@ data class SearchResults(
     val users: List<UserSummary> = emptyList(),
     val tags: List<TagSummary> = emptyList(),
     val products: List<Product> = emptyList(),
+    /** Set when every lookup failed (offline, rules); shown instead of "no matches". */
+    val error: String? = null,
 )
 
 data class SearchUiState(
@@ -110,7 +112,16 @@ class SearchViewModel @Inject constructor(
                 emit(SearchResults())
             } else {
                 emit(SearchResults(query = q, searching = true))
-                emit(SearchResults(query = q, users = social.searchUsers(q), tags = posts.searchTags(q), products = shop.searchProducts(q)))
+                val users = runCatching { social.searchUsers(q) }
+                emit(
+                    SearchResults(
+                        query = q,
+                        users = users.getOrDefault(emptyList()),
+                        tags = posts.searchTags(q),
+                        products = shop.searchProducts(q),
+                        error = users.exceptionOrNull()?.message,
+                    ),
+                )
             }
         }
 
@@ -275,8 +286,8 @@ private fun LazyListScope.results(
         item {
             EmptyState(
                 icon = R.drawable.ic_search,
-                title = "No matches for \"${state.query.trim()}\"",
-                message = if (state.section == SearchSection.Shop) "Try a brand, product or category." else "Try a different name, @handle or #tag.",
+                title = if (r.error != null) "Search isn't available right now" else "No matches for \"${state.query.trim()}\"",
+                message = r.error ?: if (state.section == SearchSection.Shop) "Try a brand, product or category." else "Try a different name, @handle or #tag.",
                 modifier = Modifier.fillMaxWidth(),
             )
         }

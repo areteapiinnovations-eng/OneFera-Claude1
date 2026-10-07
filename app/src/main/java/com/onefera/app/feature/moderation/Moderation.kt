@@ -89,6 +89,7 @@ fun ReportDialog(
         ReportTarget.User -> "account"
         ReportTarget.Message -> "message"
         ReportTarget.Product -> "listing"
+        ReportTarget.Story -> "story"
     }
     AlertDialog(
         onDismissRequest = onDismiss,

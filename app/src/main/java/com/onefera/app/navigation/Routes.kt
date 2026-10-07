@@ -13,6 +13,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object NotificationsRoute
 @Serializable data class CreatePostRoute(val reel: Boolean = false)
 @Serializable data class StoryViewerRoute(val authorUid: String)
+@Serializable data object StoryEditorRoute
 @Serializable data class UserProfileRoute(val uid: String)
 @Serializable data class FollowListRoute(val uid: String, val followers: Boolean)
 @Serializable data class PostDetailRoute(val postId: String)
@@ -26,6 +27,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class OrderRoute(val orderId: String, val justPlaced: Boolean = false)
 @Serializable data object WishlistRoute
 @Serializable data object SellerHubRoute
+@Serializable data object SellerRegistrationRoute
 @Serializable data class ListingEditorRoute(val productId: String = "")
 @Serializable data class SellerOrderRoute(val orderId: String)
 @Serializable data object RewardsRoute

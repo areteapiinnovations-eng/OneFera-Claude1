@@ -63,6 +63,8 @@ class DemoRewardsRepository @Inject constructor(
         val coupons: Map<String, List<Coupon>> = emptyMap(),
         /** "uid|yyyy-MM-dd" → boxes opened that day. */
         val boxesOpened: Map<String, Int> = emptyMap(),
+        /** "uid|yyyy-MM-dd" → what those boxes gave. */
+        val boxesWon: Map<String, List<String>> = emptyMap(),
     )
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -116,6 +118,7 @@ class DemoRewardsRepository @Inject constructor(
                     checkedInToday = profile?.lastCheckInDay == today,
                     opened = s.boxesOpened["$uid|$today"] ?: 0,
                     allowed = Rewards.boxesPerDay(profile?.membership?.active() ?: MembershipPlan.None),
+                    wonToday = s.boxesWon["$uid|$today"].orEmpty(),
                 )
             }.distinctUntilChanged()
         }
@@ -132,7 +135,11 @@ class DemoRewardsRepository @Inject constructor(
         update { s ->
             val key = "$uid|${today()}"
             val coupons = reward.coupon?.let { c -> s.coupons + (uid to (s.coupons[uid].orEmpty() + c)) } ?: s.coupons
-            s.copy(boxesOpened = s.boxesOpened + (key to (s.boxesOpened[key] ?: 0) + 1), coupons = coupons) to Unit
+            s.copy(
+                boxesOpened = s.boxesOpened + (key to (s.boxesOpened[key] ?: 0) + 1),
+                boxesWon = s.boxesWon + (key to (s.boxesWon[key].orEmpty() + reward.headline)),
+                coupons = coupons,
+            ) to Unit
         }
         if (reward.aura > 0) addAura(uid, reward.aura)
         reward

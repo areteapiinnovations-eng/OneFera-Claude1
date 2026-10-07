@@ -3,7 +3,7 @@ package com.onefera.app.data.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class AttachmentType { Image, File }
+enum class AttachmentType { Image, File, Audio }
 
 @Serializable
 data class Attachment(
@@ -12,6 +12,8 @@ data class Attachment(
     val name: String = "",
     val sizeBytes: Long = 0L,
     val aspectRatio: Float = 1f,
+    /** Length of a voice message, in milliseconds. */
+    val durationMs: Long = 0L,
 )
 
 /** Snapshot of the message being replied to, stored on the reply so it renders without a lookup. */
@@ -33,6 +35,12 @@ data class Message(
     val replyTo: ReplyPreview? = null,
     val createdAt: Long = 0L,
     val unsent: Boolean = false,
+    /** The sender changed the text after sending. */
+    val edited: Boolean = false,
+    /** Sent with "Forward" from another chat. */
+    val forwarded: Boolean = false,
+    /** Members who deleted this message for themselves only. */
+    val deletedFor: List<String> = emptyList(),
 ) {
     /** One-line summary for previews and notifications. */
     val preview: String
@@ -40,10 +48,22 @@ data class Message(
             unsent -> "Message unsent"
             text.isNotBlank() -> text
             attachment?.type == AttachmentType.Image -> "📷 Photo"
+            attachment?.type == AttachmentType.Audio -> "🎤 Voice message"
             attachment != null -> "📎 ${attachment.name.ifBlank { "File" }}"
             else -> ""
         }
+
+    /** Senders may fix a message's text for this long after sending. */
+    fun canEdit(me: String, now: Long = System.currentTimeMillis()): Boolean =
+        senderId == me && !unsent && text.isNotBlank() && now - createdAt <= EDIT_WINDOW_MS
+
+    companion object {
+        const val EDIT_WINDOW_MS = 15 * 60 * 1000L
+    }
 }
+
+/** Delivery state of one of my messages, from the other member's read time. */
+enum class MessageStatus { Sent, Seen }
 
 /** A one-to-one conversation. The id is both member uids, sorted and joined with "_". */
 @Serializable

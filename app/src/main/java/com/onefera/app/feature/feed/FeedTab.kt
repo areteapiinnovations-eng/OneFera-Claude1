@@ -41,24 +41,20 @@ import com.onefera.app.core.designsystem.component.GlassButton
 import com.onefera.app.core.designsystem.component.GlassCard
 import com.onefera.app.core.designsystem.component.GradientButton
 import com.onefera.app.core.designsystem.component.SelectChip
-import com.onefera.app.core.designsystem.component.gradientTint
 import com.onefera.app.core.designsystem.theme.OneFeraTheme
 import com.onefera.app.core.media.rememberVideoPlayer
 import com.onefera.app.core.navigation.LocalAppActions
-import com.onefera.app.data.model.AuraGrade
 import com.onefera.app.data.model.UserProfile
 import com.onefera.app.data.model.UserSummary
 import com.onefera.app.data.social.FeedScope
-import com.onefera.app.feature.main.ProgressBar
 import com.onefera.app.feature.post.CommentsSheet
+import com.onefera.app.feature.post.EditPostDialog
 import com.onefera.app.feature.post.FeedItem
 import com.onefera.app.feature.post.PostCard
 import com.onefera.app.feature.post.PostCardCallbacks
 import com.onefera.app.feature.post.PostSkeleton
 import com.onefera.app.feature.post.findPost
 import com.onefera.app.feature.post.sharePost
-
-private val streakTiers = listOf(3, 7, 30)
 
 @Composable
 fun FeedTab(
@@ -75,6 +71,8 @@ fun FeedTab(
     val listState = rememberLazyListState()
     var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf<FeedItem?>(null) }
+    var editing by remember { mutableStateOf<FeedItem?>(null) }
+    val saving by viewModel.saving.collectAsStateWithLifecycle()
     var activeVideo by remember { mutableStateOf<String?>(null) }
     val player = rememberVideoPlayer(loop = true)
 
@@ -111,7 +109,6 @@ fun FeedTab(
                 onOpen = { actions.openStories(it.author.uid) },
             )
         }
-        item(key = "era") { EraCard(profile, Modifier.padding(horizontal = 16.dp)) }
         item(key = "scope") {
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SelectChip("For You ✨", selected = selectedScope == FeedScope.ForYou, onClick = { viewModel.setScope(FeedScope.ForYou) })
@@ -150,6 +147,13 @@ fun FeedTab(
                             onComments = { commentsFor = item.post.id },
                             onShare = { sharePost(context, item.post) },
                             onDelete = { confirmDelete = item },
+                            onEdit = { editing = item },
+                            onFollow = if (item.post.authorId != state.myUid && item.post.authorId !in state.following) {
+                                { viewModel.follow(item.post.author) }
+                            } else {
+                                null
+                            },
+                            onToggleComments = { viewModel.toggleComments(item) },
                             onPlayVideo = {
                                 if (activeVideo == item.post.id) {
                                     if (player.isPlaying) player.pause() else player.play()
@@ -173,6 +177,14 @@ fun FeedTab(
     state.items.findPost(commentsFor)?.let { post ->
         CommentsSheet(post = post, onDismiss = { commentsFor = null })
     }
+    editing?.let { item ->
+        EditPostDialog(
+            post = item.post,
+            saving = saving,
+            onSave = { edit -> viewModel.edit(item, edit) { editing = null } },
+            onDismiss = { editing = null },
+        )
+    }
     confirmDelete?.let { item ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
@@ -190,45 +202,10 @@ fun FeedTab(
 }
 
 @Composable
-private fun EraCard(profile: UserProfile?, modifier: Modifier = Modifier) {
-    val extras = OneFeraTheme.extras
-    val days = profile?.streakDays ?: 0
-    val points = profile?.auraPoints ?: 0
-    val nextTier = streakTiers.firstOrNull { it > days } ?: streakTiers.last()
-    GlassCard(modifier.fillMaxWidth(), contentPadding = 14.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("🔥 $days-day streak", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
-                ProgressBar((days.toFloat() / nextTier).coerceIn(0f, 1f))
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    if (days >= streakTiers.last()) "Flame tier unlocked" else "${nextTier - days} more to the $nextTier-day tier",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = extras.muted,
-                )
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Aura $points", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.width(6.dp))
-                    Text(AuraGrade.forPoints(points).label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.gradientTint(extras.horizontalGradient()))
-                }
-                Spacer(Modifier.height(6.dp))
-                ProgressBar(points.toFloat() / AuraGrade.MAX_POINTS)
-                Spacer(Modifier.height(4.dp))
-                Text(AuraGrade.forPoints(points).description, style = MaterialTheme.typography.labelSmall, color = extras.muted)
-            }
-        }
-    }
-}
-
-@Composable
 private fun SuggestionsRow(users: List<UserSummary>, onFollow: (UserSummary) -> Unit) {
     val actions = LocalAppActions.current
     Column {
-        Text("Your circle, loading… 🙌", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        Text("People to follow 🙌", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(users, key = { it.uid }) { user ->
                 GlassCard(Modifier.width(150.dp), contentPadding = 12.dp) {

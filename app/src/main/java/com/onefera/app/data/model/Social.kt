@@ -64,6 +64,10 @@ data class Post(
     val products: List<ProductSummary> = emptyList(),
     /** Set by moderation when several people report the post; hidden from feeds until reviewed. */
     val hidden: Boolean = false,
+    /** The author switched commenting off for this post. */
+    val commentsOff: Boolean = false,
+    /** Caption or location changed after posting. */
+    val edited: Boolean = false,
 ) {
     val cover: PostMedia? get() = media.firstOrNull()
     val coverImageUrl: String? get() = cover?.let { it.thumbnailUrl ?: it.url.takeIf { _ -> it.type == MediaType.Image } }
@@ -81,7 +85,19 @@ data class Comment(
     val author: UserSummary = UserSummary(),
     val text: String = "",
     val createdAt: Long = 0L,
+    val edited: Boolean = false,
 )
+
+/** What the author can change on a post after publishing it. */
+data class PostEdit(val caption: String, val location: String) {
+    val tags: List<String> get() = extractHashtags(caption)
+}
+
+/** Who can see a story. */
+object StoryAudience {
+    const val PUBLIC = "public"
+    const val FOLLOWERS = "followers"
+}
 
 @Serializable
 data class Story(
@@ -90,13 +106,25 @@ data class Story(
     val mediaUrl: String = "",
     val createdAt: Long = 0L,
     val expiresAt: Long = 0L,
+    val audience: String = StoryAudience.PUBLIC,
+    /** People tagged with @ in the story; they get a notification. */
+    val mentions: List<UserSummary> = emptyList(),
+    /** Whether viewers may reply by direct message. */
+    val allowReplies: Boolean = true,
+)
+
+/** Settings chosen in the story editor. */
+data class StoryOptions(
+    val audience: String = StoryAudience.PUBLIC,
+    val mentions: List<UserSummary> = emptyList(),
+    val allowReplies: Boolean = true,
 )
 
 /** All active stories of one author, oldest first, as shown in the stories row. */
 data class StoryGroup(val author: UserSummary, val stories: List<Story>, val isMine: Boolean)
 
 @Serializable
-enum class NotificationType { Like, Comment, Follow, FollowRequest, FollowAccepted }
+enum class NotificationType { Like, Comment, Follow, FollowRequest, FollowAccepted, Mention }
 
 @Serializable
 data class AppNotification(

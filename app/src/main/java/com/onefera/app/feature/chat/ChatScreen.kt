@@ -1,5 +1,19 @@
 package com.onefera.app.feature.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import com.onefera.app.core.designsystem.theme.StatusColors
+import com.onefera.app.core.media.rememberVideoPlayer
+import com.onefera.app.data.model.MessageStatus
+import kotlinx.coroutines.delay
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
@@ -23,7 +37,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -108,11 +121,20 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val actions = LocalAppActions.current
     val snackbar = remember { SnackbarHostState() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var viewerUrl by remember { mutableStateOf<String?>(null) }
     var attachMenu by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    val context = LocalContext.current
+    var forwarding by remember { mutableStateOf<Message?>(null) }
+    val voicePlayer = rememberVideoPlayer(loop = false)
+    var playingVoice by remember { mutableStateOf<String?>(null) }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.startRecording(context)
+        else scope.launch { snackbar.showSnackbar("Allow microphone access in Settings to send voice notes") }
+    }
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.attach(uri, AttachmentType.Image, "Photo")
     }
@@ -209,13 +231,32 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
                         MessageBubble(
                             message = message,
                             mine = mine,
+                            status = if (!mine) null else if (otherReadAt >= message.createdAt) MessageStatus.Seen else MessageStatus.Sent,
+                            canEdit = message.canEdit(state.myUid, state.now),
                             replyName = message.replyTo?.let { if (it.senderId == state.myUid) "You" else other?.displayName.orEmpty() },
+                            voicePlayer = voicePlayer,
+                            playingVoice = playingVoice,
+                            onPlayVoice = { url ->
+                                if (playingVoice == url && voicePlayer.isPlaying) {
+                                    voicePlayer.pause()
+                                } else {
+                                    if (playingVoice != url) {
+                                        voicePlayer.setMediaItem(MediaItem.fromUri(url))
+                                        voicePlayer.prepare()
+                                    }
+                                    playingVoice = url
+                                    voicePlayer.play()
+                                }
+                            },
                             onReply = { viewModel.reply(message) },
+                            onEdit = { viewModel.startEdit(message) },
+                            onForward = { forwarding = message },
+                            onDeleteForMe = { viewModel.deleteForMe(message) },
                             onUnsend = { viewModel.unsend(message) },
                             onImage = { viewerUrl = it },
                         )
                         if (mine && message.id == lastMineId && otherReadAt >= message.createdAt) {
-                            Text("Seen ✓", style = MaterialTheme.typography.labelSmall, color = OneFeraTheme.extras.muted, modifier = Modifier.align(Alignment.End).padding(end = 6.dp))
+                            Text("Seen", style = MaterialTheme.typography.labelSmall, color = OneFeraTheme.extras.muted, modifier = Modifier.align(Alignment.End).padding(end = 6.dp))
                         }
                     }
                 }
@@ -237,6 +278,9 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(QuickReplies) { reply -> SelectChip(reply, selected = false, onClick = { viewModel.send(reply) }) }
                 }
+                state.editing?.let { editing ->
+                    ComposerBanner(title = "Editing message", body = editing.text, onClose = viewModel::cancelEdit)
+                }
                 state.replyTo?.let { reply ->
                     ComposerBanner(
                         title = "Replying to ${if (reply.senderId == state.myUid) "yourself" else other?.displayName.orEmpty()}",
@@ -247,7 +291,14 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
                 state.attachment?.let { att ->
                     ComposerBanner(title = if (att.type == AttachmentType.Image) "📷 Photo attached" else "📎 File attached", body = att.label, onClose = viewModel::removeAttachment)
                 }
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                val recordingMs = state.recordingMs
+                if (recordingMs != null) {
+                    RecordingBar(
+                        elapsedMs = recordingMs,
+                        onCancel = viewModel::cancelRecording,
+                        onSend = viewModel::stopAndSendRecording,
+                    )
+                } else Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         CircleIconButton(icon = R.drawable.ic_add, contentDescription = "Attach", onClick = { attachMenu = true }, size = 44.dp)
                         DropdownMenu(expanded = attachMenu, onDismissRequest = { attachMenu = false }) {
@@ -279,13 +330,27 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
                         modifier = Modifier.weight(1f).heightIn(max = 150.dp),
                     )
                     Spacer(Modifier.width(8.dp))
-                    CircleIconButton(
-                        icon = R.drawable.ic_send,
-                        contentDescription = "Send",
-                        onClick = { viewModel.send() },
-                        filled = state.draft.isNotBlank() || state.attachment != null,
-                        size = 48.dp,
-                    )
+                    val canType = state.draft.isNotBlank() || state.attachment != null || state.editing != null
+                    if (canType) {
+                        CircleIconButton(
+                            icon = if (state.editing != null) R.drawable.ic_check else R.drawable.ic_send,
+                            contentDescription = if (state.editing != null) "Save edit" else "Send",
+                            onClick = { viewModel.send() },
+                            filled = true,
+                            size = 48.dp,
+                        )
+                    } else {
+                        CircleIconButton(
+                            icon = R.drawable.ic_mic,
+                            contentDescription = "Record a voice note",
+                            onClick = {
+                                val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                                if (granted) viewModel.startRecording(context) else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                            },
+                            filled = false,
+                            size = 48.dp,
+                        )
+                    }
                 }
             }
         }
@@ -293,6 +358,84 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
     }
 
     viewerUrl?.let { ImageViewer(url = it, onDismiss = { viewerUrl = null }) }
+    forwarding?.let { message ->
+        AlertDialog(
+            onDismissRequest = { forwarding = null },
+            title = { Text("Forward to…") },
+            text = {
+                if (state.forwardTargets.isEmpty()) {
+                    Text("Start a chat with someone first, then you can forward messages to them.")
+                } else {
+                    LazyColumn(Modifier.heightIn(max = 380.dp)) {
+                        items(state.forwardTargets, key = { it.id }) { c ->
+                            val person = c.other(state.myUid)
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                                    forwarding = null
+                                    viewModel.forward(message, c)
+                                }.padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Avatar(person.avatarUrl, person.displayName, size = 36.dp)
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Text(person.displayName, style = MaterialTheme.typography.titleSmall)
+                                    Text("@${person.username}", style = MaterialTheme.typography.labelSmall, color = OneFeraTheme.extras.muted)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { forwarding = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun RecordingBar(elapsedMs: Long, onCancel: () -> Unit, onSend: () -> Unit) {
+    val extras = OneFeraTheme.extras
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(26.dp)).background(extras.glass).padding(start = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(StatusColors.Live))
+        Spacer(Modifier.width(10.dp))
+        Text("Recording ${formatDuration(elapsedMs)}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = onCancel) { Text("Cancel", color = MaterialTheme.colorScheme.error) }
+        CircleIconButton(icon = R.drawable.ic_send, contentDescription = "Send voice note", onClick = onSend, filled = true, size = 48.dp)
+    }
+}
+
+/** A voice note: play/pause, progress while playing, and its length. */
+@Composable
+private fun VoiceNoteBubble(url: String, durationMs: Long, tint: Color, player: Player, isCurrent: Boolean, onPlay: () -> Unit) {
+    var playing by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(isCurrent) {
+        if (!isCurrent) { playing = false; progress = 0f; return@LaunchedEffect }
+        while (true) {
+            playing = player.isPlaying
+            val total = player.duration.takeIf { it > 0 } ?: durationMs
+            progress = if (total > 0) (player.currentPosition.toFloat() / total).coerceIn(0f, 1f) else 0f
+            if (player.playbackState == Player.STATE_ENDED) { playing = false; progress = 0f }
+            delay(150)
+        }
+    }
+    Row(Modifier.widthIn(min = 200.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onPlay, modifier = Modifier.size(36.dp)) {
+            Icon(painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play), contentDescription = if (playing) "Pause voice note" else "Play voice note", tint = tint)
+        }
+        Spacer(Modifier.width(6.dp))
+        LinearProgressIndicator(progress = { progress }, modifier = Modifier.weight(1f).height(4.dp).clip(CircleShape), color = tint, trackColor = tint.copy(alpha = 0.3f))
+        Spacer(Modifier.width(8.dp))
+        Text(formatDuration(durationMs), color = tint, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+private fun formatDuration(ms: Long): String {
+    val total = (ms / 1000).coerceAtLeast(0)
+    return "%d:%02d".format(total / 60, total % 60)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -300,8 +443,16 @@ fun ChatScreen(onBack: () -> Unit, viewModel: ChatViewModel = hiltViewModel()) {
 private fun MessageBubble(
     message: Message,
     mine: Boolean,
+    status: MessageStatus?,
+    canEdit: Boolean,
     replyName: String?,
+    voicePlayer: Player,
+    playingVoice: String?,
+    onPlayVoice: (String) -> Unit,
     onReply: () -> Unit,
+    onEdit: () -> Unit,
+    onForward: () -> Unit,
+    onDeleteForMe: () -> Unit,
     onUnsend: () -> Unit,
     onImage: (String) -> Unit,
 ) {
@@ -356,6 +507,13 @@ private fun MessageBubble(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     val textColor = if (mine && !message.unsent) extras.onGradient else MaterialTheme.colorScheme.onSurface
+                    if (message.forwarded && !message.unsent) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                            Icon(painterResource(R.drawable.ic_forward), contentDescription = null, tint = textColor.copy(alpha = 0.75f), modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Forwarded", style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic), color = textColor.copy(alpha = 0.75f))
+                        }
+                    }
                     message.replyTo?.let { r ->
                         Column(
                             Modifier
@@ -372,7 +530,9 @@ private fun MessageBubble(
                         Text("Message unsent", style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic), color = extras.muted)
                     } else {
                         message.attachment?.let { att ->
-                            if (att.type == AttachmentType.Image) {
+                            if (att.type == AttachmentType.Audio) {
+                                VoiceNoteBubble(att.url, att.durationMs, textColor, voicePlayer, isCurrent = playingVoice == att.url, onPlay = { onPlayVoice(att.url) })
+                            } else if (att.type == AttachmentType.Image) {
                                 AsyncImage(
                                     model = att.url,
                                     contentDescription = "Photo",
@@ -419,17 +579,43 @@ private fun MessageBubble(
                             },
                         )
                     }
+                    if (canEdit) {
+                        DropdownMenuItem(text = { Text("Edit") }, leadingIcon = { Icon(painterResource(R.drawable.ic_edit), null) }, onClick = { menu = false; onEdit() })
+                    }
+                    DropdownMenuItem(text = { Text("Forward") }, leadingIcon = { Icon(painterResource(R.drawable.ic_forward), null) }, onClick = { menu = false; onForward() })
+                    if (message.text.isNotBlank()) {
+                        DropdownMenuItem(
+                            text = { Text("Share") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_share), null) },
+                            onClick = {
+                                menu = false
+                                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, message.text)
+                                context.startActivity(Intent.createChooser(send, "Share message"))
+                            },
+                        )
+                    }
+                    DropdownMenuItem(text = { Text("Delete for me") }, leadingIcon = { Icon(painterResource(R.drawable.ic_delete), null) }, onClick = { menu = false; onDeleteForMe() })
                     if (mine) {
-                        DropdownMenuItem(text = { Text("Unsend", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onUnsend() })
+                        DropdownMenuItem(text = { Text("Unsend for everyone", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onUnsend() })
                     }
                 }
             }
-            Text(
-                timeOf(message.createdAt),
-                style = MaterialTheme.typography.labelSmall,
-                color = extras.muted,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            )
+            Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    timeOf(message.createdAt) + if (message.edited && !message.unsent) " · edited" else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = extras.muted,
+                )
+                if (status != null && !message.unsent) {
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (status == MessageStatus.Seen) "✓✓" else "✓",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = if (status == MessageStatus.Seen) MaterialTheme.colorScheme.primary else extras.muted,
+                        modifier = Modifier.semantics { contentDescription = if (status == MessageStatus.Seen) "Seen" else "Sent" },
+                    )
+                }
+            }
         }
     }
 }

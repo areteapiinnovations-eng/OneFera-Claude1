@@ -34,6 +34,7 @@ Requirements: a current Android Studio with its bundled JDK 17+. Devices need An
    firebase deploy --only firestore:rules,firestore:indexes,storage,functions
    ```
 6. Rebuild. The demo-mode banner disappears and data is stored live in Firestore.
+   After pulling an update that changes `firebase/`, deploy again with the same command, so that the rules, indexes and functions match the app. New indexes take a few minutes to build (**Firestore → Indexes**). If a first deploy of many functions fails with "Build failed", deploy the failed functions again in smaller groups: `firebase deploy --only "functions:a,functions:b"`.
 7. **Push notifications** work once `google-services.json` is in place: the app registers each device's FCM token and asks for the notification permission on Android 13+. Tapping a notification opens the matching chat, post, profile or order.
 8. **Shop catalogue:** load the sample products (the same 100 items demo mode uses) into Firestore. Use a service-account key from *Project settings → Service accounts*:
    ```bash
@@ -42,9 +43,27 @@ Requirements: a current Android Studio with its bundled JDK 17+. Devices need An
    ```
    Re-running it refreshes titles, prices and images, and keeps live stock and sales counts. The sample product photos are hosted on the free DummyJSON test-data CDN. Replace them with real listings before launch.
 
+### Becoming a seller
+
+Every account starts as a personal account. Choosing **Profile menu → Become a Seller** opens the seller registration form, which collects:
+
+- store name and category
+- legal name and business type
+- PAN, plus GSTIN if GST-registered (the app checks the GSTIN checksum and that it contains the PAN)
+- contact details and pickup address
+- UPI or bank payout details
+- acceptance of the seller terms
+
+The app checks the form, and the `submitSellerApplication` Cloud Function checks it all again before storing it in `sellerApplications/{uid}`. The applicant can read that document; no one can write it from the app.
+
+- **Automatic approval (default):** a valid application is approved straight away.
+- **Manual review:** put `SELLER_APPROVAL=manual` in `firebase/functions/.env` to review applications yourself. Each one then waits as **Pending**. In the Firestore console, set its `status` to `Approved`, or to `Rejected` with a `rejectionReason`.
+
+Either way, the user's `sellerStatus` follows the application, and only approved sellers can switch to Seller mode. The security rules enforce this too, so the app can't be bypassed. Full bank account numbers are stored only on the server; the app sees the last 4 digits.
+
 ### Seller mode
 
-Switch any account to Seller from the profile menu, then open the **Seller hub**:
+Approved sellers switch between Personal and Seller mode from the profile menu, then open the **Seller hub**:
 
 - **Overview:** total sales, orders, average order value, a 7-day sales chart with the week-over-week change, best sellers, and low-stock alerts with one-tap restock.
 - **Listings:** add or edit products with up to 5 photos, category, price and MRP, stock, sizes or colours, and highlights. Listings appear in the Shop and can be tagged in posts. Stock can be adjusted inline.
@@ -207,3 +226,5 @@ See `docs/play-store/` for the store listing text, Data safety answers, content-
 | 5 | Seller mode: dashboard, listings, inventory, orders, analytics | ✅ |
 | 6 | Aura engine, streaks, leaderboard, Mystery Box, memberships | ✅ |
 | 7 | Near (people + stores), release hardening, Play Store listing | ✅ |
+| 8 | Fixes and MVP polish: account deletion clean-up, instant user search, For You ranking, streak check-in on every open, post/comment edit and delete, story editor (filters, text, stickers, mentions, drawing, audience), chat edit/forward/voice notes/read ticks, full-screen media, seller registration | ✅ |
+| Next | Audio/video calling: see [docs/calling.md](docs/calling.md) for options and costs | Evaluated |

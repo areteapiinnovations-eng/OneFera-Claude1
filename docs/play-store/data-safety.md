@@ -15,10 +15,12 @@ Answers for Play Console → App content → Data safety, based on what the code
 | Approximate location | ✅ | ❌ | Optional (Near, off by default) | App functionality (nearby people/stores) |
 | Photos and videos | ✅ | ❌ | Optional | App functionality (posts, stories, chat, listings) |
 | Messages (in-app) | ✅ | ❌ | Optional | App functionality |
+| Audio (voice messages in chat) | ✅ | ❌ | Optional (only when the user records one) | App functionality |
+| Seller registration: legal name, PAN, GSTIN, business address, phone, UPI ID or bank account | ✅ (sellers only) | ❌ (shared with a payout provider only if you add one, then update this row) | Optional (only to become a seller) | Account management, fraud prevention, payouts, tax compliance |
 | Files and docs (chat attachments) | ✅ | ❌ | Optional | App functionality |
 | Purchase history | ✅ | ❌ | Optional | App functionality (orders, refunds) |
 | Payment info | ❌ collected by OneFera; handled by Razorpay / Google Play | — | — | — |
 | App interactions (likes, follows) | ✅ | ❌ | Required | App functionality, personalisation (feed, Aura) |
 | Device or other IDs (FCM token) | ✅ | ❌ | Optional (push) | App functionality (notifications) |
 
-Not collected: precise location, contacts, calendar, health, financial account numbers, web history, crash logs (no Crashlytics yet; add it here if you enable it).
+Not collected: precise location, contacts, calendar, health, web history, financial account numbers of buyers (seller payout accounts are listed above), crash logs (no Crashlytics yet; add it here if you enable it).

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import com.onefera.app.core.common.AppLinks
 import com.onefera.app.data.model.Post
+import com.onefera.app.data.model.PostEdit
 import com.onefera.app.data.social.PostRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -26,6 +27,8 @@ class PostActions @Inject constructor(private val posts: PostRepository) {
     suspend fun like(item: FeedItem): Result<Unit> = if (item.liked) Result.success(Unit) else posts.setLiked(item.post, true)
     suspend fun toggleSave(item: FeedItem): Result<Unit> = posts.setSaved(item.post, !item.saved)
     suspend fun delete(item: FeedItem): Result<Unit> = posts.deletePost(item.post)
+    suspend fun edit(item: FeedItem, edit: PostEdit): Result<Unit> = posts.updatePost(item.post, edit)
+    suspend fun toggleComments(item: FeedItem): Result<Unit> = posts.setCommentsOff(item.post, !item.post.commentsOff)
 }
 
 fun sharePost(context: Context, post: Post) {
