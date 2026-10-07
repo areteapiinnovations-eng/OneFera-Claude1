@@ -17,6 +17,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.dropUnlessResumed
 import com.onefera.app.core.navigation.AppActions
 import com.onefera.app.data.push.DeepLinks
 import com.onefera.app.feature.chat.ChatScreen
@@ -179,7 +180,9 @@ fun OneFeraNavHost(
             enterTransition = { fadeIn(tween(200)) },
             popExitTransition = { fadeOut(tween(200)) },
         ) {
-            StoryViewerScreen(onClose = { navController.popBackStack() })
+            // Deleting your last story closes the viewer twice (the list empties, then the delete
+            // completes). Only the first close may pop, or Home is popped too and the app goes black.
+            StoryViewerScreen(onClose = dropUnlessResumed { navController.popBackStack() })
         }
         composable<StoryEditorRoute>(
             enterTransition = { slideInVertically(tween(320)) { it / 3 } + fadeIn(tween(320)) },
